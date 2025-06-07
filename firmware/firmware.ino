@@ -13,6 +13,7 @@
 #include <ESPAsyncWebServer.h>
 #include "webpages.h"
 #include "time.h"
+#include "esp_sntp.h"
 
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 
@@ -58,6 +59,15 @@ String scrollText = "Hello";  // Default Text String
 String currentGifPath = "";   // Store the current GIF file path
 String requestedGifPath = ""; // Path of the GIF requested by the user
 
+String gifDir = "/"; // play all GIFs in this directory on the SD card
+char filePath[256] = {0};
+File root, gifFile;
+
+TaskHandle_t screenTaskHandle;
+
+// Tasks Declaration
+void TaskScreenDrawer(void *pvParameters);
+
 struct Config
 {
   String ssid;           // wifi ssid
@@ -70,6 +80,9 @@ struct Config
 Config config;             // configuration
 bool shouldReboot = false; // schedule a reboot
 AsyncWebServer *server;    // initialise webserver
+
+bool validTime = false;
+struct tm timeinfo;
 
 // function defaults
 String listFiles(bool ishtml = false);
@@ -181,15 +194,8 @@ void GIFDraw(GIFDRAW *pDraw)
     gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
   }
 
-  if (clockEnabled)
+  if (clockEnabled && validTime)
   {
-    // Request Time from internal RTC
-    struct tm timeinfo;
-    // getLocalTime(&timeinfo);
-    if (!getLocalTime(&timeinfo))
-    {
-      Serial.println("Failed to obtain time");
-    }
     // Display the time in the format HH:MM (12/24H)
     gfx_layer_fg.clear();
     gfx_layer_fg.setTextColor(gfx_layer_fg.color565(colorR, colorG, colorB));
@@ -489,49 +495,9 @@ String humanReadableSize(const size_t bytes)
 void setup()
 {
 
-  HUB75_I2S_CFG mxconfig(
-      PANEL_RES_X, // module width
-      PANEL_RES_Y, // module height
-      PANEL_CHAIN  // Chain length
-  );
-
-  mxconfig.gpio.r1 = R1_PIN;
-  mxconfig.gpio.g1 = G1_PIN;
-  mxconfig.gpio.b1 = B1_PIN;
-  mxconfig.gpio.r2 = R2_PIN;
-  mxconfig.gpio.g2 = G2_PIN;
-  mxconfig.gpio.b2 = B2_PIN;
-
-  mxconfig.gpio.lat = LAT_PIN;
-  mxconfig.gpio.oe = OE_PIN;
-  mxconfig.gpio.clk = CLK_PIN;
-
-  mxconfig.gpio.a = A_PIN;
-  mxconfig.gpio.b = B_PIN;
-  mxconfig.gpio.c = C_PIN;
-  mxconfig.gpio.d = D_PIN;
-  mxconfig.gpio.e = E_PIN;
-
-  // Sets apropriate clock phase
-  mxconfig.clkphase = CLK_PHASE;
-
-  // Set your Panel Specific Driver
-  mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
-
-  mxconfig.min_refresh_rate = 60;
-
-  // Display Setup
-  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-  dma_display->setRotation(0); // Flip display by 90°, the value can be 0-4
-  dma_display->begin();
-  dma_display->setBrightness8(sliderValue.toInt()); // 0-255
-  dma_display->clearScreen();
-
   Serial.begin(115200);
-
   Serial.print("Firmware: ");
   Serial.println(FIRMWARE_VERSION);
-
   Serial.println("Booting ...");
 
   Serial.println("Mounting LittleFS ...");
@@ -543,11 +509,6 @@ void setup()
     rebootESP("ERROR: Cannot mount LittleFS, Rebooting");
   }
 
-  Serial.begin(115200);
-  Serial.println("Starting AnimatedGIFs Sketch");
-
-  dma_display->begin();
-
   Serial.print("Flash Free: ");
   Serial.println(humanReadableSize((LittleFS.totalBytes() - LittleFS.usedBytes())));
   Serial.print("Flash Used: ");
@@ -555,10 +516,7 @@ void setup()
   Serial.print("Flash Total: ");
   Serial.println(humanReadableSize(LittleFS.totalBytes()));
 
-  // Serial.println(listFiles(true, 1, maxGIFsPerPage));
-
   Serial.println("Loading Configuration ...");
-
   config.ssid = default_ssid;
   config.wifipassword = default_wifipassword;
   config.httpuser = default_httpuser;
@@ -607,9 +565,90 @@ void setup()
 
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer); // get time from NTP server
 
+  xTaskCreate(
+      TaskScreenDrawer, "TaskScreenDrawer" // A name just for humans
+      ,
+      8000 // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
+      ,
+      NULL // Task parameter which can modify the task behavior. This must be passed as pointer to void.
+      ,
+      2 // Priority
+      ,
+      &screenTaskHandle // Task handle is not used here - simply pass NULL
+  );
+}
+
+void loop()
+{
+  if (shouldReboot)
+  {
+    rebootESP("Web Admin Initiated Reboot");
+  }
+
+  // uint32_t highWaterMark = uxTaskGetStackHighWaterMark(screenTaskHandle);
+  // Serial.print("High Water Mark: ");
+  // Serial.println(highWaterMark);
+
+  // Get time, handle sync, etc
+  if (!getLocalTime(&timeinfo, 15))
+  {
+    Serial.println("Failed to obtain time");
+    validTime = false;
+  }
+  else
+  {
+    validTime = true;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(1000));
+}
+
+void TaskScreenDrawer(void *pvParameters)
+{
+  // Do Panel Init
+  HUB75_I2S_CFG mxconfig(
+      PANEL_RES_X, // module width
+      PANEL_RES_Y, // module height
+      PANEL_CHAIN  // Chain length
+  );
+
+  mxconfig.gpio.r1 = R1_PIN;
+  mxconfig.gpio.g1 = G1_PIN;
+  mxconfig.gpio.b1 = B1_PIN;
+  mxconfig.gpio.r2 = R2_PIN;
+  mxconfig.gpio.g2 = G2_PIN;
+  mxconfig.gpio.b2 = B2_PIN;
+
+  mxconfig.gpio.lat = LAT_PIN;
+  mxconfig.gpio.oe = OE_PIN;
+  mxconfig.gpio.clk = CLK_PIN;
+
+  mxconfig.gpio.a = A_PIN;
+  mxconfig.gpio.b = B_PIN;
+  mxconfig.gpio.c = C_PIN;
+  mxconfig.gpio.d = D_PIN;
+  mxconfig.gpio.e = E_PIN;
+
+  // Sets apropriate clock phase
+  mxconfig.clkphase = CLK_PHASE;
+
+  // Set your Panel Specific Driver
+  mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
+
+  mxconfig.min_refresh_rate = 60;
+
+  // Display Setup
+  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
+  dma_display->setRotation(0); // Flip display by 90°, the value can be 0-4
+  dma_display->begin();
+  dma_display->setBrightness8(sliderValue.toInt()); // 0-255
+  dma_display->clearScreen();
+
+  dma_display->begin();
+
   dma_display->fillScreen(dma_display->color565(0, 0, 0));
   dma_display->setTextSize(1);
-  delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   dma_display->print("ID:");
   dma_display->print(FIRMWARE_VERSION);
   dma_display->setCursor(0, 16);
@@ -621,26 +660,19 @@ void setup()
   dma_display->setCursor(0, 52);
   dma_display->print("SSID:");
   dma_display->println(WiFi.SSID());
-  delay(10000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   dma_display->fillScreen(dma_display->color565(0, 0, 0));
   gfx_layer_fg.clear();
   gfx_layer_bg.clear();
   gif.begin(LITTLE_ENDIAN_PIXELS);
-}
 
-String gifDir = "/"; // play all GIFs in this directory on the SD card
-char filePath[256] = {0};
-File root, gifFile;
+  vTaskDelay(pdMS_TO_TICKS(1000));
 
-void loop()
-{
-  if (shouldReboot)
+  Serial.print("DisplayReady");
+
+  for (;;)
   {
-    rebootESP("Web Admin Initiated Reboot");
-  }
 
-  while (1)
-  {                                 // Run forever
     root = FILESYSTEM.open(gifDir); // Open the root directory
     if (root)
     {
@@ -658,6 +690,8 @@ void loop()
           {
             break;
           }
+
+          vTaskDelay(pdMS_TO_TICKS(5));
         }
 
         if (gifFile)
@@ -683,6 +717,7 @@ void loop()
           {
             break;
           }
+          vTaskDelay(pdMS_TO_TICKS(5));
         }
       }
       else
@@ -692,6 +727,10 @@ void loop()
 
       while (gifFile)
       {
+        // Sleep just a tiny bit
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        // why we do a lot of the same stuff (like loading the gif path if it is the same)
         if (!gifFile.isDirectory())
         { // Play the file if it's not a directory
           memset(filePath, 0x0, sizeof(filePath));
@@ -730,7 +769,5 @@ void loop()
 
       root.close(); // Close the root directory
     }
-
-    delay(10); // Pause before restarting
   }
 }
