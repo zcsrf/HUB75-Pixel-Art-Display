@@ -61,6 +61,8 @@ String scrollText = "Hello";  // Default Text String
 String currentGifPath = "";   // Store the current GIF file path
 String requestedGifPath = ""; // Path of the GIF requested by the user
 
+char clockTime[6] = "12:00";
+
 String gifDir = "/"; // play all GIFs in this directory on the SD card
 char filePath[256] = {0};
 File root, gifFile;
@@ -586,6 +588,8 @@ void setup()
   xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 0);
 }
 
+bool tickTurn = false;
+
 void loop()
 {
   if (shouldReboot)
@@ -606,6 +610,16 @@ void loop()
   else
   {
     validTime = true;
+    if (tickTurn)
+    {
+      strftime(clockTime, sizeof(clockTime), "%H:%M", &timeinfo);
+      tickTurn = false;
+    }
+    else
+    {
+      strftime(clockTime, sizeof(clockTime), "%H %M", &timeinfo);
+      tickTurn = true;
+    }
   }
 
   delay(1000);
