@@ -69,12 +69,15 @@ File root, gifFile;
 
 #define HOSTNAME "led-panel"
 
+SemaphoreHandle_t gfx_layer_mutex = NULL;
+
 TaskHandle_t screenTaskHandle;
 TaskHandle_t serverTaskHandle;
 
 // Tasks Declaration
 void TaskScreenDrawer(void *pvParameters);
 void TaskServer(void *pvParameters);
+void TaskScreenInfoLayer(void *pvParameters);
 
 struct Config
 {
@@ -268,13 +271,23 @@ void ShowGIF(char *name)
     Serial.flush();
     while (gif.playFrame(true, NULL))
     {
-      gfx_layer_bg.dim(150);
-      gfx_layer_fg.dim(255);
-      gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
 
-      if ((millis() - start_tick) > 50000)
-      { // we'll get bored after about 50 seconds of the same looping gif
-        // break; // Will change to the next gif in the list after the set time.
+      if (gfx_layer_mutex != NULL)
+      {
+        if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
+        {
+
+          gfx_layer_bg.dim(150);
+          gfx_layer_fg.dim(255);
+          gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+
+          /*if ((millis() - start_tick) > 50000)
+          { // we'll get bored after about 50 seconds of the same looping gif
+            // break; // Will change to the next gif in the list after the set time.
+          }
+          */
+          xSemaphoreGive(gfx_layer_mutex); // After accessing the shared resource give the mutex and allow other processes to access it
+        }
       }
     }
 
@@ -461,6 +474,8 @@ void setup()
 
   // disableCore0WDT()
 
+  gfx_layer_mutex = xSemaphoreCreateMutex(); // Create the mutex
+
   xTaskCreatePinnedToCore(
       TaskScreenDrawer, "TaskScreenDrawer" // A name just for humans
       ,
@@ -474,6 +489,13 @@ void setup()
       1);
 
   xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 0);
+
+  xTaskCreate(
+      TaskScreenInfoLayer, "TaskScreenInfoLayer",
+      1024,
+      NULL,
+      0,
+      NULL);
 }
 
 bool tickTurn = false;
@@ -635,7 +657,7 @@ void TaskScreenDrawer(void *pvParameters)
         gifFile = root.openNextFile(); // Open the first file in the directory
       }
 
-      while (gifFile && gifEnabled)
+      while (gifFile)
       {
         // why we do a lot of the same stuff (like loading the gif path if it is the same)
         if (!gifFile.isDirectory())
@@ -872,5 +894,96 @@ void TaskServer(void *pvParameters)
   {
     server.handleClient();
     vTaskDelay(pdMS_TO_TICKS(2));
+  }
+}
+
+void TaskScreenInfoLayer(void *pvParameters)
+{
+
+  for (;;)
+  {
+
+    if (gfx_layer_mutex != NULL)
+    {
+      if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
+      {
+
+        if (clockEnabled && validTime)
+        {
+          // Display the time in the format HH:MM (12/24H)
+          gfx_layer_fg.clear();
+          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(colorR, colorG, colorB));
+          gfx_layer_fg.setTextSize(2);
+          gfx_layer_fg.setCursor(3, 24);
+          gfx_layer_fg.print(clockTime); // Clock time text is processed in another thread
+        }
+        else if (scrollTextEnabled)
+        {
+          // gfx_layer_fg.clear(); // Clear the foreground layer
+          gfx_layer_fg.setTextWrap(false); // Disable text wrapping
+
+          if (scrollFontSize == 1)
+          {
+            textYPosition = 27;
+          }
+          else if (scrollFontSize == 2)
+          {
+            textYPosition = 24;
+          }
+          else if (scrollFontSize == 3)
+          {
+            textYPosition = 20;
+          }
+          else if (scrollFontSize == 4)
+          {
+            textYPosition = 16;
+          }
+          else
+          {
+            textYPosition = 24;
+          }
+          byte offSet = 25;
+          unsigned long now = millis();
+          if (now > isAnimationDue)
+          {
+
+            gfx_layer_fg.setTextSize(scrollFontSize); // size 2 == 16 pixels high
+
+            isAnimationDue = now + scrollSpeed;
+            textXPosition -= 1;
+
+            // Checking is the very right of the text off screen to the left
+            gfx_layer_fg.getTextBounds(scrollText.c_str(), textXPosition, textYPosition, &xOne, &yOne, &w, &h);
+            if (textXPosition + w <= 0)
+            {
+              textXPosition = gfx_layer_fg.width() + offSet;
+            }
+
+            gfx_layer_fg.setCursor(textXPosition, textYPosition);
+
+            // Clear the area of text to be drawn to
+            gfx_layer_fg.drawRect(0, textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
+            gfx_layer_fg.fillRect(0, textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
+
+            uint8_t w = 0;
+            for (w = 0; w < strlen(scrollText.c_str()); w++)
+            {
+              gfx_layer_fg.setTextColor(gfx_layer_fg.color565(colorR, colorG, colorB));
+              gfx_layer_fg.print(scrollText.c_str()[w]);
+              // Serial.println(textYPosition);
+            }
+          }
+        }
+        else
+        {
+          gfx_layer_fg.clear(); // Clear the foreground layer
+        }
+
+        xSemaphoreGive(gfx_layer_mutex);
+      }
+    }
+
+    // If we require the Scrol Text to be faster, reduce the below delay
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
