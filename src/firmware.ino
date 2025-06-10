@@ -40,8 +40,7 @@ const String default_httpuser = "admin";           // WebUI login id
 const String default_httppassword = "admin";       // WebUI login password
 const int default_webserverporthttp = 80;
 const char *ntpServer = "10.200.0.1"; // NTP server
-const char *PARAM_INPUT = "value";
-const long gmtOffset_sec = 0; // GMT Timezone Offset in seconds (change this to your own)
+const long gmtOffset_sec = 0;         // GMT Timezone Offset in seconds (change this to your own)
 const int daylightOffset_sec = 0;
 const int maxGIFsPerPage = 4; // Change this value to set the maximum number of GIFs per page (keep this at 4)
 int textXPosition = 64;       // Will start off screen
@@ -809,6 +808,139 @@ void toggleGif()
   }
 }
 
+void toggleClock()
+{
+  if (server.args() == 1)
+  {
+    if (server.argName(0) == "state")
+    {
+      clockEnabled = (server.arg(0) == "on");
+      server.send(200);
+    }
+    else
+    {
+      server.send(200);
+    }
+  }
+  else
+  {
+    server.send(400, "text/plain", "Missing 'state' parameter");
+  }
+}
+
+void toggleLoopGif()
+{
+  if (server.args() == 1)
+  {
+    if (server.argName(0) == "state")
+    {
+      loopGifEnabled = (server.arg(0) == "on");
+      server.send(200);
+    }
+    else
+    {
+      server.send(200);
+    }
+  }
+  else
+  {
+    server.send(400, "text/plain", "Missing 'state' parameter");
+  }
+}
+
+void toggleScrollText()
+{
+  if (server.args() == 1)
+  {
+    if (server.hasArg("state"))
+    {
+      scrollTextEnabled = (server.arg(0) == "on");
+      server.send(200);
+    }
+    else
+    {
+      server.send(200);
+    }
+  }
+  else
+  {
+    server.send(400, "text/plain", "Missing 'state' parameter");
+  }
+}
+
+void adjustSlider()
+{
+  if (server.args() == 1)
+  {
+    if (server.argName(0) == "value")
+    {
+      server.send(200);
+      sliderValue = server.arg(0);
+      dma_display->setBrightness8(sliderValue.toInt());
+    }
+    else
+    {
+      server.send(200);
+    }
+  }
+  else
+  {
+    server.send(400, "text/plain", "Missing 'value' parameter");
+  }
+}
+
+void setReboot()
+{
+  ESP.restart();
+  // shouldReboot = true; // not required...
+}
+
+void setColor()
+{
+  if (server.args() == 3)
+  {
+    if (server.hasArg("r") && server.hasArg("g") && server.hasArg("b"))
+    {
+      colorR = server.arg("r").toInt();
+      colorG = server.arg("g").toInt();
+      colorB = server.arg("b").toInt();
+
+      server.send(200);
+    }
+    else
+    {
+      server.send(400, "text/plain", "Missing parameters");
+    }
+  }
+  else
+  {
+    server.send(400, "text/plain", "Missing parameter");
+  }
+}
+
+void setScrollText()
+{
+  if (server.args() == 3)
+  {
+    if (server.hasArg("text") && server.hasArg("fontSize") && server.hasArg("speed"))
+    {
+      scrollText = server.arg("text");
+      scrollFontSize = server.arg("fontSize").toInt();
+      scrollSpeed = server.arg("speed").toInt();
+
+      server.send(200);
+    }
+    else
+    {
+      server.send(400, "text/plain", "Missing parameters");
+    }
+  }
+  else
+  {
+    server.send(400, "text/plain", "Missing parameter");
+  }
+}
+
 void TaskServer(void *pvParameters)
 {
   server.on("/", SendWebsite);
@@ -817,22 +949,21 @@ void TaskServer(void *pvParameters)
                     { server.send(404, "text/plain", "Not found"); });
 
   server.on("/toggleGIF", toggleGif);
-  /*
 
-  server.on("/toggleClock", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-  if (request->hasParam("state")) {
-      String state = request->getParam("state")->value();
-      clockEnabled = (state == "on");
-      if (clockEnabled) {
-          scrollTextEnabled = false; // Disable scrolling text if the clock is enabled
-      }
-      Serial.printf("Clock state changed: %s\n", clockEnabled ? "ON" : "OFF");
-      request->send(200, "text/plain", "Clock state updated");
-  } else {
-      request->send(400, "text/plain", "Missing 'state' parameter");
-  } });
-*/
+  server.on("/toggleClock", toggleClock);
+
+  server.on("/toggleLoopGif", toggleLoopGif);
+
+  server.on("/toggleScrollText", toggleScrollText);
+
+  server.on("/reboot", setReboot);
+
+  server.on("/slider", adjustSlider);
+
+  server.on("/setColor", setColor);
+
+  server.on("/updateScrollText", setScrollText);
+
   server.begin();
 
   for (;;)
