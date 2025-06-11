@@ -1,5 +1,5 @@
-#ifndef CUSTOM_PIN_OUT_h
-#define CUSTOM_PIN_OUT_h
+#ifndef PANEL_CONFIG_h
+#define PANEL_CONFIG_h
 
 #define A_PIN 23
 #define B_PIN 19
