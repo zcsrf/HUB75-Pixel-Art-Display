@@ -60,6 +60,7 @@ struct DeviceStatus
 {
     bool validTime;
     char clockTime[6];
+    bool tickTurn;
     Color textColor;
     ScrollTextStatus scrollText;
     GifStatus gif;
@@ -97,6 +98,7 @@ struct Config bootDefaults = {
     },
     .status = {.validTime = false,   // If we have or not a valid time
                .clockTime = "12:00", // Where we store the "current time" do be displayed
+               .tickTurn = false, // To show or not to show the `:`
                .textColor = {.red = 255, .green = 255, .blue = 255},
                .scrollText = {
                    .scrollText = "Hello",

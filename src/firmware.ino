@@ -351,313 +351,6 @@ String humanReadableSize(const size_t bytes)
     return String(bytes / 1024.0 / 1024.0 / 1024.0) + " GB";
 }
 
-/************************* Arduino Sketch Setup and Loop() *******************************/
-void setup()
-{
-
-  // Run only in case of issues with preference storage
-  // nvs_flash_erase(); // erase the NVS partition and...
-  // nvs_flash_init(); // initialize the NVS partition.
-
-  preferences.begin("led-panel", false);
-
-  // Try to load values from preferences
-  // We could probably find a way to do the whole struct at once
-  // But this way is readable what we want to "get"
-  config.display.clockEnabled = preferences.getBool("clock", bootDefaults.display.clockEnabled);
-  config.display.scrollTextEnabled = preferences.getBool("scrollText", bootDefaults.display.scrollTextEnabled);
-  config.display.gifEnabled = preferences.getBool("gifState", bootDefaults.display.gifEnabled);
-  config.display.loopGifEnabled = preferences.getBool("loopGif", bootDefaults.display.loopGifEnabled);
-  config.display.displayBrightness = preferences.getUInt("displayBrig", bootDefaults.display.displayBrightness);
-
-  Serial.begin(115200);
-  Serial.print("Firmware: ");
-  Serial.println(FIRMWARE_VERSION);
-  Serial.println("Booting ...");
-
-  Serial.println("Mounting LittleFS ...");
-  if (!LittleFS.begin(true))
-  {
-    // if you have not used LittleFS. before on a ESP32, it will show this error.
-    // after a reboot LittleFS. will be configured and will happily work.
-    Serial.println("ERROR: Cannot mount LittleFS, Rebooting");
-    rebootESP("ERROR: Cannot mount LittleFS, Rebooting");
-  }
-
-  Serial.print("Flash Free: ");
-  Serial.println(humanReadableSize((LittleFS.totalBytes() - LittleFS.usedBytes())));
-  Serial.print("Flash Used: ");
-  Serial.println(humanReadableSize(LittleFS.usedBytes()));
-  Serial.print("Flash Total: ");
-  Serial.println(humanReadableSize(LittleFS.totalBytes()));
-
-  Serial.println("Loading Configuration ...");
-
-  Serial.print("\nConnecting to Wifi: ");
-  WiFi.begin(config.wifi.ssid.c_str(), config.wifi.password.c_str());
-  WiFi.setHostname(HOSTNAME);
-
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    Serial.print("."); // Uncomment the 3 lines if you want the ESP32 to wait until the WIFI is connected
-  }
-
-  Serial.println("\n\nNetwork Configuration:");
-  Serial.println("----------------------");
-  Serial.print("         SSID: ");
-  Serial.println(WiFi.SSID());
-  Serial.print("  Wifi Status: ");
-  Serial.println(WiFi.status());
-  Serial.print("Wifi Strength: ");
-  Serial.print(WiFi.RSSI());
-  Serial.println(" dBm");
-  Serial.print("          MAC: ");
-  Serial.println(WiFi.macAddress());
-  Serial.print("           IP: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("       Subnet: ");
-  Serial.println(WiFi.subnetMask());
-  Serial.print("      Gateway: ");
-  Serial.println(WiFi.gatewayIP());
-  Serial.print("        DNS 1: ");
-  Serial.println(WiFi.dnsIP(0));
-  Serial.print("        DNS 2: ");
-  Serial.println(WiFi.dnsIP(1));
-  Serial.print("        DNS 3: ");
-  Serial.println(WiFi.dnsIP(2));
-  Serial.println();
-
-  configTime(config.time.gmtOffsetSec, config.time.daylightOffsetSec, config.time.ntpServer.c_str()); // get time from NTP server
-
-  // disableCore0WDT()
-
-  gfx_layer_mutex = xSemaphoreCreateMutex(); // Create the mutex
-
-  xTaskCreatePinnedToCore(
-      TaskScreenDrawer, "TaskScreenDrawer" // A name just for humans
-      ,
-      8000 // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
-      ,
-      NULL // Task parameter which can modify the task behavior. This must be passed as pointer to void.
-      ,
-      0 // Priority
-      ,
-      &screenTaskHandle, // Task handle is not used here - simply pass NULL
-      1);
-
-  xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 0);
-
-  xTaskCreate(
-      TaskScreenInfoLayer, "TaskScreenInfoLayer",
-      1024,
-      NULL,
-      0,
-      NULL);
-}
-
-bool tickTurn = false;
-
-void loop()
-{
-  // uint32_t highWaterMark = uxTaskGetStackHighWaterMark(screenTaskHandle);
-  // Serial.print("High Water Mark: ");
-  // Serial.println(highWaterMark);
-
-  // Get time, handle sync, etc
-  if (!getLocalTime(&timeinfo, 15))
-  {
-    Serial.println("Failed to obtain time");
-    config.status.validTime = false;
-  }
-  else
-  {
-    config.status.validTime = true;
-    if (tickTurn)
-    {
-      strftime(config.status.clockTime, sizeof(config.status.clockTime), "%H:%M", &timeinfo);
-      tickTurn = false;
-    }
-    else
-    {
-      strftime(config.status.clockTime, sizeof(config.status.clockTime), "%H %M", &timeinfo);
-      tickTurn = true;
-    }
-  }
-
-  delay(1000);
-}
-
-void TaskScreenDrawer(void *pvParameters)
-{
-  File root, gifFile;
-
-  // Do Panel Init
-  HUB75_I2S_CFG mxconfig(
-      PANEL_RES_X, // module width
-      PANEL_RES_Y, // module height
-      PANEL_CHAIN  // Chain length
-  );
-
-  mxconfig.gpio.r1 = R1_PIN;
-  mxconfig.gpio.g1 = G1_PIN;
-  mxconfig.gpio.b1 = B1_PIN;
-  mxconfig.gpio.r2 = R2_PIN;
-  mxconfig.gpio.g2 = G2_PIN;
-  mxconfig.gpio.b2 = B2_PIN;
-
-  mxconfig.gpio.lat = LAT_PIN;
-  mxconfig.gpio.oe = OE_PIN;
-  mxconfig.gpio.clk = CLK_PIN;
-
-  mxconfig.gpio.a = A_PIN;
-  mxconfig.gpio.b = B_PIN;
-  mxconfig.gpio.c = C_PIN;
-  mxconfig.gpio.d = D_PIN;
-  mxconfig.gpio.e = E_PIN;
-
-  // Sets apropriate clock phase
-  mxconfig.clkphase = CLK_PHASE;
-
-  // Set your Panel Specific Driver
-  mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
-
-  mxconfig.min_refresh_rate = 60;
-
-  // Display Setup
-  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-  dma_display->setRotation(0); // Flip display by 90°, the value can be 0-4
-  dma_display->begin();
-  dma_display->setBrightness8(config.display.displayBrightness); // 0-255
-  dma_display->clearScreen();
-
-  dma_display->begin();
-
-  dma_display->fillScreen(dma_display->color565(0, 0, 0));
-  dma_display->setTextSize(1);
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  dma_display->print("ID:");
-  dma_display->print(FIRMWARE_VERSION);
-  dma_display->setCursor(0, 16);
-  dma_display->print("IP:");
-  dma_display->print(WiFi.localIP());
-  dma_display->setCursor(0, 38);
-  dma_display->print("RSSI:");
-  dma_display->println(WiFi.RSSI());
-  dma_display->setCursor(0, 52);
-  dma_display->print("SSID:");
-  dma_display->println(WiFi.SSID());
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  dma_display->fillScreen(dma_display->color565(0, 0, 0));
-  gfx_layer_fg.clear();
-  gfx_layer_bg.clear();
-  gif.begin(LITTLE_ENDIAN_PIXELS);
-
-  vTaskDelay(pdMS_TO_TICKS(1000));
-
-  Serial.print("DisplayReady");
-
-  for (;;)
-  {
-
-    root = FILESYSTEM.open(config.gifConfig.gifDir); // Open the root directory
-    if (root)
-    {
-      // Check if a new GIF is requested via the play button
-      if (!config.status.gif.requestedGifPath.isEmpty())
-      {
-        // Play the requested GIF and set it as the current GIF
-        config.status.gif.currentGifPath = config.status.gif.requestedGifPath; // Update the current GIF path
-        config.status.gif.requestedGifPath = "";                               // Clear the requested path
-
-        // Find and play the requested GIF
-        while (gifFile = root.openNextFile())
-        {
-          if (String(gifFile.path()) == config.status.gif.currentGifPath)
-          {
-            break;
-          }
-
-          vTaskDelay(pdMS_TO_TICKS(1));
-        }
-
-        if (gifFile)
-        {
-          // Play the requested GIF
-          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
-          strcpy(config.status.gif.filePath, gifFile.path());
-          ShowGIF(config.status.gif.filePath);
-
-          // If looping is enabled, continue looping the requested GIF
-          if (config.display.loopGifEnabled)
-          {
-            continue; // Restart the loop for the same GIF
-          }
-        }
-      }
-      else if (!config.status.gif.currentGifPath.isEmpty())
-      {
-        // Resume from the last GIF
-        while (gifFile = root.openNextFile())
-        {
-          if (String(gifFile.path()) == config.status.gif.currentGifPath)
-          {
-            break;
-          }
-          vTaskDelay(pdMS_TO_TICKS(1));
-        }
-      }
-      else
-      {
-        gifFile = root.openNextFile(); // Open the first file in the directory
-      }
-
-      while (gifFile)
-      {
-        // why we do a lot of the same stuff (like loading the gif path if it is the same)
-        if (!gifFile.isDirectory())
-        { // Play the file if it's not a directory
-          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
-          strcpy(config.status.gif.filePath, gifFile.path());
-          config.status.gif.currentGifPath = String(config.status.gif.filePath); // Save the current GIF path
-
-          // Show the GIF
-          ShowGIF(config.status.gif.filePath);
-
-          // If looping is enabled, continue playing the same GIF
-          if (config.display.loopGifEnabled)
-          {
-            continue; // Restart the loop for the same GIF
-          }
-        }
-
-        if (!config.display.loopGifEnabled)
-        {
-          // If looping is disabled, move to the next GIF
-          gifFile.close();               // Close the current GIF file
-          gifFile = root.openNextFile(); // Open the next file
-
-          // If no more files, reset to the first file
-          if (!gifFile)
-          {
-            root.close();                   // Close the root directory
-            root = FILESYSTEM.open(config.gifConfig.gifDir); // Reopen the root directory
-            gifFile = root.openNextFile();  // Start from the first file again
-          }
-        }
-        else
-        {
-          break; // Exit the loop if looping is disabled
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(1));
-      }
-
-      root.close(); // Close the root directory
-    }
-  }
-}
-
 void SendWebsite()
 {
   bool gifEnabledTemp = config.display.gifEnabled;
@@ -824,6 +517,310 @@ void setScrollText()
   else
   {
     server.send(400, "text/plain", "Missing parameter");
+  }
+}
+
+void setup()
+{
+
+  // Run only in case of issues with preference storage
+  // nvs_flash_erase(); // erase the NVS partition and...
+  // nvs_flash_init(); // initialize the NVS partition.
+
+  preferences.begin("led-panel", false);
+
+  // Try to load values from preferences
+  // We could probably find a way to do the whole struct at once
+  // But this way is readable what we want to "get"
+  config.display.clockEnabled = preferences.getBool("clock", bootDefaults.display.clockEnabled);
+  config.display.scrollTextEnabled = preferences.getBool("scrollText", bootDefaults.display.scrollTextEnabled);
+  config.display.gifEnabled = preferences.getBool("gifState", bootDefaults.display.gifEnabled);
+  config.display.loopGifEnabled = preferences.getBool("loopGif", bootDefaults.display.loopGifEnabled);
+  config.display.displayBrightness = preferences.getUInt("displayBrig", bootDefaults.display.displayBrightness);
+
+  Serial.begin(115200);
+  Serial.print("Firmware: ");
+  Serial.println(FIRMWARE_VERSION);
+  Serial.println("Booting ...");
+
+  Serial.println("Mounting LittleFS ...");
+  if (!LittleFS.begin(true))
+  {
+    // if you have not used LittleFS. before on a ESP32, it will show this error.
+    // after a reboot LittleFS. will be configured and will happily work.
+    Serial.println("ERROR: Cannot mount LittleFS, Rebooting");
+    rebootESP("ERROR: Cannot mount LittleFS, Rebooting");
+  }
+
+  Serial.print("Flash Free: ");
+  Serial.println(humanReadableSize((LittleFS.totalBytes() - LittleFS.usedBytes())));
+  Serial.print("Flash Used: ");
+  Serial.println(humanReadableSize(LittleFS.usedBytes()));
+  Serial.print("Flash Total: ");
+  Serial.println(humanReadableSize(LittleFS.totalBytes()));
+
+  Serial.println("Loading Configuration ...");
+
+  Serial.print("\nConnecting to Wifi: ");
+  WiFi.begin(config.wifi.ssid.c_str(), config.wifi.password.c_str());
+  WiFi.setHostname(HOSTNAME);
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    Serial.print("."); // Uncomment the 3 lines if you want the ESP32 to wait until the WIFI is connected
+  }
+
+  Serial.println("\n\nNetwork Configuration:");
+  Serial.println("----------------------");
+  Serial.print("         SSID: ");
+  Serial.println(WiFi.SSID());
+  Serial.print("  Wifi Status: ");
+  Serial.println(WiFi.status());
+  Serial.print("Wifi Strength: ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
+  Serial.print("          MAC: ");
+  Serial.println(WiFi.macAddress());
+  Serial.print("           IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("       Subnet: ");
+  Serial.println(WiFi.subnetMask());
+  Serial.print("      Gateway: ");
+  Serial.println(WiFi.gatewayIP());
+  Serial.print("        DNS 1: ");
+  Serial.println(WiFi.dnsIP(0));
+  Serial.print("        DNS 2: ");
+  Serial.println(WiFi.dnsIP(1));
+  Serial.print("        DNS 3: ");
+  Serial.println(WiFi.dnsIP(2));
+  Serial.println();
+
+  configTime(config.time.gmtOffsetSec, config.time.daylightOffsetSec, config.time.ntpServer.c_str()); // get time from NTP server
+
+  // disableCore0WDT()
+
+  gfx_layer_mutex = xSemaphoreCreateMutex(); // Create the mutex
+
+  xTaskCreatePinnedToCore(
+      TaskScreenDrawer, "TaskScreenDrawer" // A name just for humans
+      ,
+      8000 // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
+      ,
+      NULL // Task parameter which can modify the task behavior. This must be passed as pointer to void.
+      ,
+      0 // Priority
+      ,
+      &screenTaskHandle, // Task handle is not used here - simply pass NULL
+      1);
+
+  xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 0);
+
+  xTaskCreate(
+      TaskScreenInfoLayer, "TaskScreenInfoLayer",
+      1024,
+      NULL,
+      0,
+      NULL);
+}
+
+void loop()
+{
+  // uint32_t highWaterMark = uxTaskGetStackHighWaterMark(screenTaskHandle);
+  // Serial.print("High Water Mark: ");
+  // Serial.println(highWaterMark);
+
+  // Get time, handle sync, etc
+  if (!getLocalTime(&timeinfo, 15))
+  {
+    Serial.println("Failed to obtain time");
+    config.status.validTime = false;
+  }
+  else
+  {
+    config.status.validTime = true;
+    if (config.status.tickTurn)
+    {
+      strftime(config.status.clockTime, sizeof(config.status.clockTime), "%H:%M", &timeinfo);
+      config.status.tickTurn = false;
+    }
+    else
+    {
+      strftime(config.status.clockTime, sizeof(config.status.clockTime), "%H %M", &timeinfo);
+      config.status.tickTurn = true;
+    }
+  }
+
+  delay(1000);
+}
+
+void TaskScreenDrawer(void *pvParameters)
+{
+  File root, gifFile;
+
+  // Do Panel Init
+  HUB75_I2S_CFG mxconfig(
+      PANEL_RES_X, // module width
+      PANEL_RES_Y, // module height
+      PANEL_CHAIN  // Chain length
+  );
+
+  mxconfig.gpio.r1 = R1_PIN;
+  mxconfig.gpio.g1 = G1_PIN;
+  mxconfig.gpio.b1 = B1_PIN;
+  mxconfig.gpio.r2 = R2_PIN;
+  mxconfig.gpio.g2 = G2_PIN;
+  mxconfig.gpio.b2 = B2_PIN;
+
+  mxconfig.gpio.lat = LAT_PIN;
+  mxconfig.gpio.oe = OE_PIN;
+  mxconfig.gpio.clk = CLK_PIN;
+
+  mxconfig.gpio.a = A_PIN;
+  mxconfig.gpio.b = B_PIN;
+  mxconfig.gpio.c = C_PIN;
+  mxconfig.gpio.d = D_PIN;
+  mxconfig.gpio.e = E_PIN;
+
+  // Sets apropriate clock phase
+  mxconfig.clkphase = CLK_PHASE;
+
+  // Set your Panel Specific Driver
+  mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
+
+  mxconfig.min_refresh_rate = 60;
+
+  // Display Setup
+  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
+  dma_display->setRotation(0); // Flip display by 90°, the value can be 0-4
+  dma_display->begin();
+  dma_display->setBrightness8(config.display.displayBrightness); // 0-255
+  dma_display->clearScreen();
+
+  dma_display->begin();
+
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
+  dma_display->setTextSize(1);
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  dma_display->print("ID:");
+  dma_display->print(FIRMWARE_VERSION);
+  dma_display->setCursor(0, 16);
+  dma_display->print("IP:");
+  dma_display->print(WiFi.localIP());
+  dma_display->setCursor(0, 38);
+  dma_display->print("RSSI:");
+  dma_display->println(WiFi.RSSI());
+  dma_display->setCursor(0, 52);
+  dma_display->print("SSID:");
+  dma_display->println(WiFi.SSID());
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  dma_display->fillScreen(dma_display->color565(0, 0, 0));
+  gfx_layer_fg.clear();
+  gfx_layer_bg.clear();
+  gif.begin(LITTLE_ENDIAN_PIXELS);
+
+  vTaskDelay(pdMS_TO_TICKS(1000));
+
+  Serial.print("DisplayReady");
+
+  for (;;)
+  {
+
+    root = FILESYSTEM.open(config.gifConfig.gifDir); // Open the root directory
+    if (root)
+    {
+      // Check if a new GIF is requested via the play button
+      if (!config.status.gif.requestedGifPath.isEmpty())
+      {
+        // Play the requested GIF and set it as the current GIF
+        config.status.gif.currentGifPath = config.status.gif.requestedGifPath; // Update the current GIF path
+        config.status.gif.requestedGifPath = "";                               // Clear the requested path
+
+        // Find and play the requested GIF
+        while (gifFile = root.openNextFile())
+        {
+          if (String(gifFile.path()) == config.status.gif.currentGifPath)
+          {
+            break;
+          }
+
+          vTaskDelay(pdMS_TO_TICKS(1));
+        }
+
+        if (gifFile)
+        {
+          // Play the requested GIF
+          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
+          strcpy(config.status.gif.filePath, gifFile.path());
+          ShowGIF(config.status.gif.filePath);
+
+          // If looping is enabled, continue looping the requested GIF
+          if (config.display.loopGifEnabled)
+          {
+            continue; // Restart the loop for the same GIF
+          }
+        }
+      }
+      else if (!config.status.gif.currentGifPath.isEmpty())
+      {
+        // Resume from the last GIF
+        while (gifFile = root.openNextFile())
+        {
+          if (String(gifFile.path()) == config.status.gif.currentGifPath)
+          {
+            break;
+          }
+          vTaskDelay(pdMS_TO_TICKS(1));
+        }
+      }
+      else
+      {
+        gifFile = root.openNextFile(); // Open the first file in the directory
+      }
+
+      while (gifFile)
+      {
+        // why we do a lot of the same stuff (like loading the gif path if it is the same)
+        if (!gifFile.isDirectory())
+        { // Play the file if it's not a directory
+          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
+          strcpy(config.status.gif.filePath, gifFile.path());
+          config.status.gif.currentGifPath = String(config.status.gif.filePath); // Save the current GIF path
+
+          // Show the GIF
+          ShowGIF(config.status.gif.filePath);
+
+          // If looping is enabled, continue playing the same GIF
+          if (config.display.loopGifEnabled)
+          {
+            continue; // Restart the loop for the same GIF
+          }
+        }
+
+        if (!config.display.loopGifEnabled)
+        {
+          // If looping is disabled, move to the next GIF
+          gifFile.close();               // Close the current GIF file
+          gifFile = root.openNextFile(); // Open the next file
+
+          // If no more files, reset to the first file
+          if (!gifFile)
+          {
+            root.close();                                    // Close the root directory
+            root = FILESYSTEM.open(config.gifConfig.gifDir); // Reopen the root directory
+            gifFile = root.openNextFile();                   // Start from the first file again
+          }
+        }
+        else
+        {
+          break; // Exit the loop if looping is disabled
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1));
+      }
+
+      root.close(); // Close the root directory
+    }
   }
 }
 
