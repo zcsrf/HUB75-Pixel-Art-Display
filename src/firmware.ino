@@ -23,47 +23,19 @@
 
 #include <Preferences.h>
 
+#define HOSTNAME "led-panel"
+
 Preferences preferences;
-
 MatrixPanel_I2S_DMA *dma_display = nullptr;
+WebServer server(80);
+AnimatedGIF gif;
 
-uint16_t myBLACK = dma_display->color565(0, 0, 0);
-uint16_t myWHITE = dma_display->color565(255, 255, 255);
-uint16_t myRED = dma_display->color565(255, 0, 0);
-uint16_t myGREEN = dma_display->color565(0, 255, 0);
-uint16_t myBLUE = dma_display->color565(0, 0, 255);
-uint16_t textWidth = 0; // Width of the scrolling text
-uint16_t w, h;
-uint8_t colorR = 255;       // Default Red value
-uint8_t colorG = 255;       // Default Green value
-uint8_t colorB = 255;       // Default Blue value
-uint8_t scrollFontSize = 2; // Default font size (1 = small, 2 = normal, 3 = big, 4 = huge)
-uint8_t scrollSpeed = 18;   // Default scroll speed (1 = fastest, 150 = slowest)
-int16_t xOne, yOne;
+tm timeinfo;
 
 struct Config config = bootDefaults;
 
-const int maxGIFsPerPage = 4; // Change this value to set the maximum number of GIFs per page (keep this at 4)
-int textXPosition = 64;       // Will start off screen
-int textYPosition = 24;       // center of screen (half of the text height)
-
-unsigned long lastPixelToggle = 0;  // Tracks the last time the second set of pixels was drawn
-unsigned long lastScrollUpdate = 0; // Tracks the last time the text was scrolled
-unsigned long isAnimationDue;
-
-String inputMessage;
-
-String scrollText = "Hello";  // Default Text String
-String currentGifPath = "";   // Store the current GIF file path
-String requestedGifPath = ""; // Path of the GIF requested by the user
-
-char clockTime[6] = "12:00";
-
-String gifDir = "/"; // play all GIFs in this directory on the SD card
-char filePath[256] = {0};
-File root, gifFile;
-
-#define HOSTNAME "led-panel"
+// function defaults
+String listFiles(bool ishtml = false);
 
 SemaphoreHandle_t gfx_layer_mutex = NULL;
 
@@ -75,31 +47,19 @@ void TaskScreenDrawer(void *pvParameters);
 void TaskServer(void *pvParameters);
 void TaskScreenInfoLayer(void *pvParameters);
 
-bool shouldReboot = false; // schedule a reboot
-
-WebServer server(80);
-
-bool validTime = false;
-struct tm timeinfo;
-
-// function defaults
-String listFiles(bool ishtml = false);
-
-AnimatedGIF gif;
-File f;
-int x_offset, y_offset;
-
-void layer_draw_callback(int16_t x, int16_t y, uint8_t r_data, uint8_t g_data, uint8_t b_data)
-{
-
-  dma_display->drawPixel(x, y, dma_display->color565(r_data, g_data, b_data));
-}
+void layer_draw_callback(int16_t x, int16_t y, uint8_t r_data, uint8_t g_data, uint8_t b_data);
 
 // Global GFX_Layer object
 GFX_Layer gfx_layer_bg(64, 64, layer_draw_callback); // background
 GFX_Layer gfx_layer_fg(64, 64, layer_draw_callback); // foreground
 
 GFX_LayerCompositor gfx_compositor(layer_draw_callback);
+
+void layer_draw_callback(int16_t x, int16_t y, uint8_t r_data, uint8_t g_data, uint8_t b_data)
+{
+
+  dma_display->drawPixel(x, y, dma_display->color565(r_data, g_data, b_data));
+}
 
 void GIFDraw(GIFDRAW *pDraw)
 {
@@ -197,11 +157,11 @@ void *GIFOpenFile(const char *fname, int32_t *pSize)
 {
   Serial.print("Playing gif: ");
   Serial.println(fname);
-  f = FILESYSTEM.open(fname);
-  if (f)
+  config.status.gif.currentFile = FILESYSTEM.open(fname);
+  if (config.status.gif.currentFile)
   {
-    *pSize = f.size();
-    return (void *)&f;
+    *pSize = config.status.gif.currentFile.size();
+    return (void *)&config.status.gif.currentFile;
   }
   return NULL;
 } /* GIFOpenFile() */
@@ -243,6 +203,8 @@ unsigned long start_tick = 0;
 
 void ShowGIF(char *name)
 {
+  int x_offset, y_offset; // can be local
+
   start_tick = millis();
   unsigned long lastTimeCheck = millis(); // Timer for getLocalTime
   if (gif.open(name, GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw))
@@ -289,7 +251,7 @@ void rebootESP(String message)
   ESP.restart();
 }
 
-String listFiles(bool ishtml, int page = 1, int pageSize = maxGIFsPerPage)
+String listFiles(bool ishtml, int page = 1, int pageSize = config.gifConfig.maxGIFsPerPage)
 {
   String returnText = "";
   int fileIndex = 0;
@@ -394,19 +356,19 @@ void setup()
 {
 
   // Run only in case of issues with preference storage
-  //nvs_flash_erase(); // erase the NVS partition and...
-  //nvs_flash_init(); // initialize the NVS partition.
+  // nvs_flash_erase(); // erase the NVS partition and...
+  // nvs_flash_init(); // initialize the NVS partition.
 
   preferences.begin("led-panel", false);
 
   // Try to load values from preferences
   // We could probably find a way to do the whole struct at once
   // But this way is readable what we want to "get"
-  config.display.clockEnabled = preferences.getBool("clock", bootDefaults.display.clockEnabled); 
-  config.display.scrollTextEnabled = preferences.getBool("scrollText", bootDefaults.display.scrollTextEnabled); 
-  config.display.gifEnabled = preferences.getBool("gifState", bootDefaults.display.gifEnabled); 
-  config.display.loopGifEnabled = preferences.getBool("loopGif", bootDefaults.display.loopGifEnabled); 
-  config.display.displayBrightness = preferences.getUInt("displayBrig", bootDefaults.display.displayBrightness); 
+  config.display.clockEnabled = preferences.getBool("clock", bootDefaults.display.clockEnabled);
+  config.display.scrollTextEnabled = preferences.getBool("scrollText", bootDefaults.display.scrollTextEnabled);
+  config.display.gifEnabled = preferences.getBool("gifState", bootDefaults.display.gifEnabled);
+  config.display.loopGifEnabled = preferences.getBool("loopGif", bootDefaults.display.loopGifEnabled);
+  config.display.displayBrightness = preferences.getUInt("displayBrig", bootDefaults.display.displayBrightness);
 
   Serial.begin(115200);
   Serial.print("Firmware: ");
@@ -430,7 +392,6 @@ void setup()
   Serial.println(humanReadableSize(LittleFS.totalBytes()));
 
   Serial.println("Loading Configuration ...");
-  
 
   Serial.print("\nConnecting to Wifi: ");
   WiFi.begin(config.wifi.ssid.c_str(), config.wifi.password.c_str());
@@ -499,11 +460,6 @@ bool tickTurn = false;
 
 void loop()
 {
-  if (shouldReboot)
-  {
-    rebootESP("Web Admin Initiated Reboot");
-  }
-
   // uint32_t highWaterMark = uxTaskGetStackHighWaterMark(screenTaskHandle);
   // Serial.print("High Water Mark: ");
   // Serial.println(highWaterMark);
@@ -512,19 +468,19 @@ void loop()
   if (!getLocalTime(&timeinfo, 15))
   {
     Serial.println("Failed to obtain time");
-    validTime = false;
+    config.status.validTime = false;
   }
   else
   {
-    validTime = true;
+    config.status.validTime = true;
     if (tickTurn)
     {
-      strftime(clockTime, sizeof(clockTime), "%H:%M", &timeinfo);
+      strftime(config.status.clockTime, sizeof(config.status.clockTime), "%H:%M", &timeinfo);
       tickTurn = false;
     }
     else
     {
-      strftime(clockTime, sizeof(clockTime), "%H %M", &timeinfo);
+      strftime(config.status.clockTime, sizeof(config.status.clockTime), "%H %M", &timeinfo);
       tickTurn = true;
     }
   }
@@ -534,6 +490,8 @@ void loop()
 
 void TaskScreenDrawer(void *pvParameters)
 {
+  File root, gifFile;
+
   // Do Panel Init
   HUB75_I2S_CFG mxconfig(
       PANEL_RES_X, // module width
@@ -602,20 +560,20 @@ void TaskScreenDrawer(void *pvParameters)
   for (;;)
   {
 
-    root = FILESYSTEM.open(gifDir); // Open the root directory
+    root = FILESYSTEM.open(config.gifConfig.gifDir); // Open the root directory
     if (root)
     {
       // Check if a new GIF is requested via the play button
-      if (!requestedGifPath.isEmpty())
+      if (!config.status.gif.requestedGifPath.isEmpty())
       {
         // Play the requested GIF and set it as the current GIF
-        currentGifPath = requestedGifPath; // Update the current GIF path
-        requestedGifPath = "";             // Clear the requested path
+        config.status.gif.currentGifPath = config.status.gif.requestedGifPath; // Update the current GIF path
+        config.status.gif.requestedGifPath = "";                               // Clear the requested path
 
         // Find and play the requested GIF
         while (gifFile = root.openNextFile())
         {
-          if (String(gifFile.path()) == currentGifPath)
+          if (String(gifFile.path()) == config.status.gif.currentGifPath)
           {
             break;
           }
@@ -626,9 +584,9 @@ void TaskScreenDrawer(void *pvParameters)
         if (gifFile)
         {
           // Play the requested GIF
-          memset(filePath, 0x0, sizeof(filePath));
-          strcpy(filePath, gifFile.path());
-          ShowGIF(filePath);
+          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
+          strcpy(config.status.gif.filePath, gifFile.path());
+          ShowGIF(config.status.gif.filePath);
 
           // If looping is enabled, continue looping the requested GIF
           if (config.display.loopGifEnabled)
@@ -637,12 +595,12 @@ void TaskScreenDrawer(void *pvParameters)
           }
         }
       }
-      else if (!currentGifPath.isEmpty())
+      else if (!config.status.gif.currentGifPath.isEmpty())
       {
         // Resume from the last GIF
         while (gifFile = root.openNextFile())
         {
-          if (String(gifFile.path()) == currentGifPath)
+          if (String(gifFile.path()) == config.status.gif.currentGifPath)
           {
             break;
           }
@@ -659,12 +617,12 @@ void TaskScreenDrawer(void *pvParameters)
         // why we do a lot of the same stuff (like loading the gif path if it is the same)
         if (!gifFile.isDirectory())
         { // Play the file if it's not a directory
-          memset(filePath, 0x0, sizeof(filePath));
-          strcpy(filePath, gifFile.path());
-          currentGifPath = String(filePath); // Save the current GIF path
+          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
+          strcpy(config.status.gif.filePath, gifFile.path());
+          config.status.gif.currentGifPath = String(config.status.gif.filePath); // Save the current GIF path
 
           // Show the GIF
-          ShowGIF(filePath);
+          ShowGIF(config.status.gif.filePath);
 
           // If looping is enabled, continue playing the same GIF
           if (config.display.loopGifEnabled)
@@ -683,7 +641,7 @@ void TaskScreenDrawer(void *pvParameters)
           if (!gifFile)
           {
             root.close();                   // Close the root directory
-            root = FILESYSTEM.open(gifDir); // Reopen the root directory
+            root = FILESYSTEM.open(config.gifConfig.gifDir); // Reopen the root directory
             gifFile = root.openNextFile();  // Start from the first file again
           }
         }
@@ -821,7 +779,6 @@ void adjustSlider()
 void setReboot()
 {
   ESP.restart();
-  // shouldReboot = true; // not required...
 }
 
 void setColor()
@@ -830,9 +787,9 @@ void setColor()
   {
     if (server.hasArg("r") && server.hasArg("g") && server.hasArg("b"))
     {
-      colorR = server.arg("r").toInt();
-      colorG = server.arg("g").toInt();
-      colorB = server.arg("b").toInt();
+      config.status.textColor.red = server.arg("r").toInt();
+      config.status.textColor.green = server.arg("g").toInt();
+      config.status.textColor.blue = server.arg("b").toInt();
 
       server.send(200);
     }
@@ -853,9 +810,9 @@ void setScrollText()
   {
     if (server.hasArg("text") && server.hasArg("fontSize") && server.hasArg("speed"))
     {
-      scrollText = server.arg("text");
-      scrollFontSize = server.arg("fontSize").toInt();
-      scrollSpeed = server.arg("speed").toInt();
+      config.status.scrollText.scrollText = server.arg("text");
+      config.status.scrollText.scrollFontSize = server.arg("fontSize").toInt();
+      config.status.scrollText.scrollSpeed = server.arg("speed").toInt();
 
       server.send(200);
     }
@@ -904,6 +861,9 @@ void TaskServer(void *pvParameters)
 
 void TaskScreenInfoLayer(void *pvParameters)
 {
+  int16_t xOne, yOne;
+  uint16_t w, h;
+  unsigned long isAnimationDue;
 
   for (;;)
   {
@@ -913,68 +873,66 @@ void TaskScreenInfoLayer(void *pvParameters)
       if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
       {
 
-        if (config.display.clockEnabled && validTime)
+        if (config.display.clockEnabled && config.status.validTime)
         {
           // Display the time in the format HH:MM (12/24H)
           gfx_layer_fg.clear();
-          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(colorR, colorG, colorB));
+          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
           gfx_layer_fg.setTextSize(2);
           gfx_layer_fg.setCursor(3, 24);
-          gfx_layer_fg.print(clockTime); // Clock time text is processed in another thread
+          gfx_layer_fg.print(config.status.clockTime); // Clock time text is processed in another thread
         }
         else if (config.display.scrollTextEnabled)
         {
           // gfx_layer_fg.clear(); // Clear the foreground layer
           gfx_layer_fg.setTextWrap(false); // Disable text wrapping
 
-          if (scrollFontSize == 1)
+          switch (config.status.scrollText.scrollFontSize)
           {
-            textYPosition = 27;
+          case 1:
+            config.status.scrollText.textYPosition = 27;
+            break;
+          case 3:
+            config.status.scrollText.textYPosition = 20;
+
+            break;
+          case 4:
+            config.status.scrollText.textYPosition = 16;
+            break;
+          case 2:
+          default:
+            config.status.scrollText.textYPosition = 24;
+            break;
           }
-          else if (scrollFontSize == 2)
-          {
-            textYPosition = 24;
-          }
-          else if (scrollFontSize == 3)
-          {
-            textYPosition = 20;
-          }
-          else if (scrollFontSize == 4)
-          {
-            textYPosition = 16;
-          }
-          else
-          {
-            textYPosition = 24;
-          }
+
           byte offSet = 25;
           unsigned long now = millis();
           if (now > isAnimationDue)
           {
 
-            gfx_layer_fg.setTextSize(scrollFontSize); // size 2 == 16 pixels high
+            gfx_layer_fg.setTextSize(config.status.scrollText.scrollFontSize); // size 2 == 16 pixels high
 
-            isAnimationDue = now + scrollSpeed;
-            textXPosition -= 1;
+            isAnimationDue = now + config.status.scrollText.scrollSpeed;
+            config.status.scrollText.textXPosition -= 1;
 
             // Checking is the very right of the text off screen to the left
-            gfx_layer_fg.getTextBounds(scrollText.c_str(), textXPosition, textYPosition, &xOne, &yOne, &w, &h);
-            if (textXPosition + w <= 0)
+            gfx_layer_fg.getTextBounds(config.status.scrollText.scrollText.c_str(), config.status.scrollText.textXPosition, config.status.scrollText.textYPosition, &xOne, &yOne, &w, &h);
+            if (config.status.scrollText.textXPosition + w <= 0)
             {
-              textXPosition = gfx_layer_fg.width() + offSet;
+              config.status.scrollText.textXPosition = gfx_layer_fg.width() + offSet;
             }
 
-            gfx_layer_fg.setCursor(textXPosition, textYPosition);
+            gfx_layer_fg.setCursor(config.status.scrollText.textXPosition, config.status.scrollText.textYPosition);
 
             // Clear the area of text to be drawn to
-            gfx_layer_fg.drawRect(0, textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
-            gfx_layer_fg.fillRect(0, textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
+            gfx_layer_fg.drawRect(0, config.status.scrollText.textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
+            gfx_layer_fg.fillRect(0, config.status.scrollText.textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
 
             uint8_t w = 0;
-            for (w = 0; w < strlen(scrollText.c_str()); w++)
+            for (w = 0; w < strlen(config.status.scrollText.scrollText.c_str()); w++)
             {
-              gfx_layer_fg.setTextColor(gfx_layer_fg.color565(colorR, colorG, colorB));
-              gfx_layer_fg.print(scrollText.c_str()[w]);
+              gfx_layer_fg.setTextColor(gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
+              gfx_layer_fg.print(config.status.scrollText.scrollText.c_str()[w]);
               // Serial.println(textYPosition);
             }
           }
