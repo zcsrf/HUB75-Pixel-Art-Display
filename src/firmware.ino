@@ -14,9 +14,16 @@
 #include <WebServer.h>
 
 #include "panel_config.h"
+#include "device_config.h"
 #include "webpages.h"
 #include "time.h"
 #include "esp_sntp.h"
+
+#include <nvs_flash.h>
+
+#include <Preferences.h>
+
+Preferences preferences;
 
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 
@@ -34,14 +41,8 @@ uint8_t scrollFontSize = 2; // Default font size (1 = small, 2 = normal, 3 = big
 uint8_t scrollSpeed = 18;   // Default scroll speed (1 = fastest, 150 = slowest)
 int16_t xOne, yOne;
 
-const String default_ssid = "Rede-IOT";            // Your WiFi SSID
-const String default_wifipassword = "madalenaIOT"; // Your WiFi password
-const String default_httpuser = "admin";           // WebUI login id
-const String default_httppassword = "admin";       // WebUI login password
-const int default_webserverporthttp = 80;
-const char *ntpServer = "10.200.0.1"; // NTP server
-const long gmtOffset_sec = 0;         // GMT Timezone Offset in seconds (change this to your own)
-const int daylightOffset_sec = 0;
+struct Config config = bootDefaults;
+
 const int maxGIFsPerPage = 4; // Change this value to set the maximum number of GIFs per page (keep this at 4)
 int textXPosition = 64;       // Will start off screen
 int textYPosition = 24;       // center of screen (half of the text height)
@@ -49,14 +50,9 @@ int textYPosition = 24;       // center of screen (half of the text height)
 unsigned long lastPixelToggle = 0;  // Tracks the last time the second set of pixels was drawn
 unsigned long lastScrollUpdate = 0; // Tracks the last time the text was scrolled
 unsigned long isAnimationDue;
-bool showFirstSet = true;       // Default state: Clock divider colon
-bool clockEnabled = true;       // Default state: Clock is enabled
-bool gifEnabled = true;         // Default state: GIF playback is enabled
-bool scrollTextEnabled = false; // Default state: Scrolling text is disabled
-bool loopGifEnabled = true;     // Default state: Loop GIF is enabled (reverese logic)
 
 String inputMessage;
-String sliderValue = "100";   // Default brightness value
+
 String scrollText = "Hello";  // Default Text String
 String currentGifPath = "";   // Store the current GIF file path
 String requestedGifPath = ""; // Path of the GIF requested by the user
@@ -79,16 +75,6 @@ void TaskScreenDrawer(void *pvParameters);
 void TaskServer(void *pvParameters);
 void TaskScreenInfoLayer(void *pvParameters);
 
-struct Config
-{
-  String ssid;           // wifi ssid
-  String wifipassword;   // wifi password
-  String httpuser;       // username to access web admin
-  String httppassword;   // password to access web admin
-  int webserverporthttp; // http port number for web admin
-};
-
-Config config;             // configuration
 bool shouldReboot = false; // schedule a reboot
 
 WebServer server(80);
@@ -139,7 +125,7 @@ void GIFDraw(GIFDRAW *pDraw)
     pDraw->ucHasTransparency = 0;
   }
 
-  if (gifEnabled) // Check if GIF playback is enabled
+  if (config.display.gifEnabled) // Check if GIF playback is enabled
   {
     if (pDraw->ucHasTransparency) // if transparency used
     {
@@ -407,6 +393,21 @@ String humanReadableSize(const size_t bytes)
 void setup()
 {
 
+  // Run only in case of issues with preference storage
+  //nvs_flash_erase(); // erase the NVS partition and...
+  //nvs_flash_init(); // initialize the NVS partition.
+
+  preferences.begin("led-panel", false);
+
+  // Try to load values from preferences
+  // We could probably find a way to do the whole struct at once
+  // But this way is readable what we want to "get"
+  config.display.clockEnabled = preferences.getBool("clock", bootDefaults.display.clockEnabled); 
+  config.display.scrollTextEnabled = preferences.getBool("scrollText", bootDefaults.display.scrollTextEnabled); 
+  config.display.gifEnabled = preferences.getBool("gifState", bootDefaults.display.gifEnabled); 
+  config.display.loopGifEnabled = preferences.getBool("loopGif", bootDefaults.display.loopGifEnabled); 
+  config.display.displayBrightness = preferences.getUInt("displayBrig", bootDefaults.display.displayBrightness); 
+
   Serial.begin(115200);
   Serial.print("Firmware: ");
   Serial.println(FIRMWARE_VERSION);
@@ -429,14 +430,10 @@ void setup()
   Serial.println(humanReadableSize(LittleFS.totalBytes()));
 
   Serial.println("Loading Configuration ...");
-  config.ssid = default_ssid;
-  config.wifipassword = default_wifipassword;
-  config.httpuser = default_httpuser;
-  config.httppassword = default_httppassword;
-  config.webserverporthttp = default_webserverporthttp;
+  
 
   Serial.print("\nConnecting to Wifi: ");
-  WiFi.begin(config.ssid.c_str(), config.wifipassword.c_str());
+  WiFi.begin(config.wifi.ssid.c_str(), config.wifi.password.c_str());
   WiFi.setHostname(HOSTNAME);
 
   while (WiFi.status() != WL_CONNECTED)
@@ -470,7 +467,7 @@ void setup()
   Serial.println(WiFi.dnsIP(2));
   Serial.println();
 
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer); // get time from NTP server
+  configTime(config.time.gmtOffsetSec, config.time.daylightOffsetSec, config.time.ntpServer.c_str()); // get time from NTP server
 
   // disableCore0WDT()
 
@@ -573,7 +570,7 @@ void TaskScreenDrawer(void *pvParameters)
   dma_display = new MatrixPanel_I2S_DMA(mxconfig);
   dma_display->setRotation(0); // Flip display by 90°, the value can be 0-4
   dma_display->begin();
-  dma_display->setBrightness8(sliderValue.toInt()); // 0-255
+  dma_display->setBrightness8(config.display.displayBrightness); // 0-255
   dma_display->clearScreen();
 
   dma_display->begin();
@@ -634,7 +631,7 @@ void TaskScreenDrawer(void *pvParameters)
           ShowGIF(filePath);
 
           // If looping is enabled, continue looping the requested GIF
-          if (loopGifEnabled)
+          if (config.display.loopGifEnabled)
           {
             continue; // Restart the loop for the same GIF
           }
@@ -670,13 +667,13 @@ void TaskScreenDrawer(void *pvParameters)
           ShowGIF(filePath);
 
           // If looping is enabled, continue playing the same GIF
-          if (loopGifEnabled)
+          if (config.display.loopGifEnabled)
           {
             continue; // Restart the loop for the same GIF
           }
         }
 
-        if (!loopGifEnabled)
+        if (!config.display.loopGifEnabled)
         {
           // If looping is disabled, move to the next GIF
           gifFile.close();               // Close the current GIF file
@@ -705,10 +702,12 @@ void TaskScreenDrawer(void *pvParameters)
 
 void SendWebsite()
 {
-  gifEnabled = false;
+  bool gifEnabledTemp = config.display.gifEnabled;
+
+  config.display.gifEnabled = false;
   Serial.println("sending web page");
   server.send(200, "text/html", index_html);
-  gifEnabled = true;
+  config.display.gifEnabled = gifEnabledTemp;
 }
 
 void toggleGif()
@@ -718,8 +717,9 @@ void toggleGif()
   {
     if (server.argName(0) == "state")
     {
-      gifEnabled = (server.arg(0) == "on");
+      config.display.gifEnabled = (server.arg(0) == "on");
       server.send(200);
+      preferences.putBool("gifState", config.display.gifEnabled);
     }
     else
     {
@@ -738,8 +738,9 @@ void toggleClock()
   {
     if (server.argName(0) == "state")
     {
-      clockEnabled = (server.arg(0) == "on");
+      config.display.clockEnabled = (server.arg(0) == "on");
       server.send(200);
+      preferences.putBool("clock", config.display.clockEnabled);
     }
     else
     {
@@ -758,8 +759,9 @@ void toggleLoopGif()
   {
     if (server.argName(0) == "state")
     {
-      loopGifEnabled = (server.arg(0) == "on");
+      config.display.loopGifEnabled = (server.arg(0) == "on");
       server.send(200);
+      preferences.putBool("loopGif", config.display.loopGifEnabled);
     }
     else
     {
@@ -778,8 +780,9 @@ void toggleScrollText()
   {
     if (server.hasArg("state"))
     {
-      scrollTextEnabled = (server.arg(0) == "on");
+      config.display.scrollTextEnabled = (server.arg(0) == "on");
       server.send(200);
+      preferences.putBool("scrollText", config.display.scrollTextEnabled);
     }
     else
     {
@@ -798,9 +801,11 @@ void adjustSlider()
   {
     if (server.argName(0) == "value")
     {
+      config.display.displayBrightness = server.arg(0).toInt();
       server.send(200);
-      sliderValue = server.arg(0);
-      dma_display->setBrightness8(sliderValue.toInt());
+
+      dma_display->setBrightness8(config.display.displayBrightness);
+      preferences.putUInt("displayBrig", config.display.displayBrightness);
     }
     else
     {
@@ -908,7 +913,7 @@ void TaskScreenInfoLayer(void *pvParameters)
       if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
       {
 
-        if (clockEnabled && validTime)
+        if (config.display.clockEnabled && validTime)
         {
           // Display the time in the format HH:MM (12/24H)
           gfx_layer_fg.clear();
@@ -917,7 +922,7 @@ void TaskScreenInfoLayer(void *pvParameters)
           gfx_layer_fg.setCursor(3, 24);
           gfx_layer_fg.print(clockTime); // Clock time text is processed in another thread
         }
-        else if (scrollTextEnabled)
+        else if (config.display.scrollTextEnabled)
         {
           // gfx_layer_fg.clear(); // Clear the foreground layer
           gfx_layer_fg.setTextWrap(false); // Disable text wrapping
