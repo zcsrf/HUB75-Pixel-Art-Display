@@ -175,8 +175,8 @@ void GIFCloseFile(void *pHandle)
 
 int32_t GIFReadFile(GIFFILE *pFile, uint8_t *pBuf, int32_t iLen)
 {
-  int32_t iBytesRead;
-  iBytesRead = iLen;
+  int32_t iBytesRead = iLen;
+  
   File *f = static_cast<File *>(pFile->fHandle);
   // Note: If you read a file all the way to the last byte, seek() stops working
   if ((pFile->iSize - pFile->iPos) < iLen)
@@ -199,6 +199,7 @@ int32_t GIFSeekFile(GIFFILE *pFile, int32_t iPosition)
   return pFile->iPos;
 } /* GIFSeekFile() */
 
+// TODO: Move this up to config
 unsigned long start_tick = 0;
 
 void ShowGIF(char *name)
@@ -206,7 +207,7 @@ void ShowGIF(char *name)
   int x_offset, y_offset; // can be local
 
   start_tick = millis();
-  unsigned long lastTimeCheck = millis(); // Timer for getLocalTime
+
   if (gif.open(name, GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw))
   {
     x_offset = (MATRIX_WIDTH - gif.getCanvasWidth()) / 2;
@@ -215,19 +216,22 @@ void ShowGIF(char *name)
     y_offset = (MATRIX_HEIGHT - gif.getCanvasHeight()) / 2;
     if (y_offset < 0)
       y_offset = 0;
-    Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
-    Serial.flush();
+
+    //Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
+    //Serial.flush();
+
     while (gif.playFrame(true, NULL))
     {
-
       if (gfx_layer_mutex != NULL)
       {
         if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
         {
-
           gfx_layer_bg.dim(150);
           gfx_layer_fg.dim(255);
-          gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+          // TODO: Pick the best compositor or make a new one?
+          //gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+          //gfx_compositor.Siloette(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+          gfx_compositor.Stack(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
 
           /*if ((millis() - start_tick) > 50000)
           { // we'll get bored after about 50 seconds of the same looping gif
