@@ -624,6 +624,29 @@ void setup()
       NULL);
 }
 
+File findGifByPath(File root, const String &targetPath)
+{
+  File gifFile;
+  while ((gifFile = root.openNextFile()))
+  {
+    if (String(gifFile.path()) == targetPath)
+    {
+      return gifFile;
+    }
+    gifFile.close();
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+  return File(); // Return empty file if not found
+}
+
+void playGif(File gifFile)
+{
+  memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
+  strcpy(config.status.gif.filePath, gifFile.path());
+  config.status.gif.currentGifPath = String(config.status.gif.filePath);
+  ShowGIF(config.status.gif.filePath);
+}
+
 void loop()
 {
   // uint32_t highWaterMark = uxTaskGetStackHighWaterMark(screenTaskHandle);
@@ -656,7 +679,7 @@ void loop()
 
 void TaskScreenDrawer(void *pvParameters)
 {
-  File root, gifFile;
+  File root;
 
   // Do Panel Init
   HUB75_I2S_CFG mxconfig(
@@ -723,104 +746,66 @@ void TaskScreenDrawer(void *pvParameters)
 
   Serial.print("DisplayReady");
 
+  root = FILESYSTEM.open(config.gifConfig.gifDir);
+
+  while (!root)
+  {
+    Serial.print("Can't get root folder");
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    root = FILESYSTEM.open(config.gifConfig.gifDir);
+  }
+
+  // Handle user-requested GIF
+  if (!config.status.gif.requestedGifPath.isEmpty())
+  {
+    config.status.gif.gifFile = findGifByPath(root, config.status.gif.requestedGifPath);
+    config.status.gif.currentGifPath = config.status.gif.requestedGifPath;
+    config.status.gif.requestedGifPath = "";
+  }
+  // Resume last played
+  else if (! config.status.gif.gifFile && !config.status.gif.currentGifPath.isEmpty())
+  {
+     config.status.gif.gifFile = findGifByPath(root, config.status.gif.currentGifPath);
+  }
+  // Fallback: play next available
+  else if (! config.status.gif.gifFile)
+  {
+     config.status.gif.gifFile = root.openNextFile();
+  }
+
   for (;;)
   {
-
-    root = FILESYSTEM.open(config.gifConfig.gifDir); // Open the root directory
-    if (root)
+    if ( config.status.gif.gifFile)
     {
-      // Check if a new GIF is requested via the play button
-      if (!config.status.gif.requestedGifPath.isEmpty())
+      if (! config.status.gif.gifFile.isDirectory())
       {
-        // Play the requested GIF and set it as the current GIF
-        config.status.gif.currentGifPath = config.status.gif.requestedGifPath; // Update the current GIF path
-        config.status.gif.requestedGifPath = "";                               // Clear the requested path
-
-        // Find and play the requested GIF
-        while (gifFile = root.openNextFile())
-        {
-          if (String(gifFile.path()) == config.status.gif.currentGifPath)
-          {
-            break;
-          }
-
-          vTaskDelay(pdMS_TO_TICKS(1));
-        }
-
-        if (gifFile)
-        {
-          // Play the requested GIF
-          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
-          strcpy(config.status.gif.filePath, gifFile.path());
-          ShowGIF(config.status.gif.filePath);
-
-          // If looping is enabled, continue looping the requested GIF
-          if (config.display.loopGifEnabled)
-          {
-            continue; // Restart the loop for the same GIF
-          }
-        }
+        playGif(config.status.gif.gifFile);
       }
-      else if (!config.status.gif.currentGifPath.isEmpty())
-      {
-        // Resume from the last GIF
-        while (gifFile = root.openNextFile())
-        {
-          if (String(gifFile.path()) == config.status.gif.currentGifPath)
-          {
-            break;
-          }
-          vTaskDelay(pdMS_TO_TICKS(1));
-        }
-      }
-      else
-      {
-        gifFile = root.openNextFile(); // Open the first file in the directory
-      }
-
-      while (gifFile)
-      {
-        // why we do a lot of the same stuff (like loading the gif path if it is the same)
-        if (!gifFile.isDirectory())
-        { // Play the file if it's not a directory
-          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
-          strcpy(config.status.gif.filePath, gifFile.path());
-          config.status.gif.currentGifPath = String(config.status.gif.filePath); // Save the current GIF path
-
-          // Show the GIF
-          ShowGIF(config.status.gif.filePath);
-
-          // If looping is enabled, continue playing the same GIF
-          if (config.display.loopGifEnabled)
-          {
-            continue; // Restart the loop for the same GIF
-          }
-        }
-
-        if (!config.display.loopGifEnabled)
-        {
-          // If looping is disabled, move to the next GIF
-          gifFile.close();               // Close the current GIF file
-          gifFile = root.openNextFile(); // Open the next file
-
-          // If no more files, reset to the first file
-          if (!gifFile)
-          {
-            root.close();                                    // Close the root directory
-            root = FILESYSTEM.open(config.gifConfig.gifDir); // Reopen the root directory
-            gifFile = root.openNextFile();                   // Start from the first file again
-          }
-        }
-        else
-        {
-          break; // Exit the loop if looping is disabled
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(1));
-      }
-
-      root.close(); // Close the root directory
     }
+    else
+    {
+      // No gif file :'(
+      Serial.print("DisplayReady");
+    }
+
+    if (!config.display.loopGifEnabled)
+    {
+      // Go get the next file
+       config.status.gif.gifFile = root.openNextFile();
+
+      if (! config.status.gif.gifFile)
+      {
+        root.close();
+        root = FILESYSTEM.open(config.gifConfig.gifDir);
+         config.status.gif.gifFile = root.openNextFile();
+      }
+    }
+    else
+    {
+      // we are looping...
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 

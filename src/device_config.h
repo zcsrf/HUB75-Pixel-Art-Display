@@ -32,6 +32,7 @@ struct GifStatus
     String requestedGifPath;
     char filePath[256];
     File currentFile;
+    File gifFile;
 };
 
 struct WifiConfig
@@ -111,7 +112,8 @@ struct Config bootDefaults = {
                    .currentGifPath = "",   // Store the current GIF file path
                    .requestedGifPath = "", // Path of the GIF requested by the user
                    .filePath = {0},        // Our open file path
-                   .currentFile = {0},
+                   .currentFile = File(),
+                   .gifFile = File(),
                }},
 };
 
