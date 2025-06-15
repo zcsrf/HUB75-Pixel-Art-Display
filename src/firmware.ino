@@ -475,7 +475,123 @@ void adjustSlider()
 
 void setReboot()
 {
-  ESP.restart();
+  rebootESP("Web Request");
+}
+
+File fsUploadFile;
+
+void handleUpload()
+{
+  HTTPUpload &upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START)
+  {
+    String filename = upload.filename;
+    if (!filename.startsWith("/"))
+    {
+      filename = "/" + filename;
+    }
+    Serial.print("handleFileUpload Name: ");
+    Serial.println(filename);
+    fsUploadFile = FILESYSTEM.open(filename, "w");
+    filename = String();
+  }
+  else if (upload.status == UPLOAD_FILE_WRITE)
+  {
+    Serial.print("handleFileUpload Data: ");
+    Serial.println(upload.currentSize);
+    if (fsUploadFile)
+    {
+      fsUploadFile.write(upload.buf, upload.currentSize);
+    }
+  }
+  else if (upload.status == UPLOAD_FILE_END)
+  {
+    if (fsUploadFile)
+    {
+      fsUploadFile.close();
+    }
+    Serial.print("handleFileUpload Size: ");
+    Serial.println(upload.totalSize);
+  }
+}
+
+void handleListFiles()
+{
+  int page = 1;
+
+  if (server.hasArg("page"))
+  {
+    page = server.arg("page").toInt();
+  }
+
+  server.send(200, "text/html", listFiles(true, page, config.gifConfig.maxGIFsPerPage));
+}
+
+void handleFileRequest()
+{
+  bool gifEnabledTemp = config.display.gifEnabled;
+
+  config.display.gifEnabled = false;
+
+  if (server.hasArg("name") && server.hasArg("action"))
+  {
+    String fileName = "/" + server.arg("name");
+    String fileAction = server.arg("action");
+
+    String logmessage = "Client: " + server.client().remoteIP().toString() + " " + server.uri() +
+                        "?name=" + fileName + "&action=" + fileAction;
+
+    if (!LittleFS.exists(fileName))
+    {
+      Serial.println(logmessage + " ERROR: file does not exist");
+      server.send(400, "text/plain", "ERROR: file does not exist");
+      return;
+    }
+
+    Serial.println(logmessage + " file exists");
+
+    if (fileAction == "download")
+    {
+      logmessage += " downloaded";
+      File downloadFile = LittleFS.open(fileName, "r");
+      server.streamFile(downloadFile, "application/octet-stream");
+      downloadFile.close();
+    }
+    else if (fileAction == "delete")
+    {
+      LittleFS.remove(fileName);
+      logmessage += " deleted";
+      server.send(200, "text/plain", "Deleted File: " + fileName);
+    }
+    else if (fileAction == "play")
+    {
+      config.status.gif.requestedGifPath = fileName;
+      config.status.gif.gifFile = LittleFS.open(fileName, "r");
+      logmessage += " opening";
+      server.send(200, "text/plain", "Opened GIF: " + fileName);
+    }
+    else if (fileAction == "show")
+    {
+      logmessage += " previewing";
+      delay(100); // simulate processing
+      File imageFile = LittleFS.open(fileName, "r");
+      server.streamFile(imageFile, "image/gif");
+      imageFile.close();
+    }
+    else
+    {
+      logmessage += " ERROR: invalid action param supplied";
+      server.send(400, "text/plain", "ERROR: invalid action param supplied");
+    }
+
+    Serial.println(logmessage);
+  }
+  else
+  {
+    server.send(400, "text/plain", "ERROR: name and action params required");
+  }
+
+  config.display.gifEnabled = gifEnabledTemp;
 }
 
 void setColor()
@@ -767,21 +883,21 @@ void TaskScreenDrawer(void *pvParameters)
     config.status.gif.requestedGifPath = "";
   }
   // Resume last played
-  else if (! config.status.gif.gifFile && !config.status.gif.currentGifPath.isEmpty())
+  else if (!config.status.gif.gifFile && !config.status.gif.currentGifPath.isEmpty())
   {
-     config.status.gif.gifFile = findGifByPath(root, config.status.gif.currentGifPath);
+    config.status.gif.gifFile = findGifByPath(root, config.status.gif.currentGifPath);
   }
   // Fallback: play next available
-  else if (! config.status.gif.gifFile)
+  else if (!config.status.gif.gifFile)
   {
-     config.status.gif.gifFile = root.openNextFile();
+    config.status.gif.gifFile = root.openNextFile();
   }
 
   for (;;)
   {
-    if ( config.status.gif.gifFile)
+    if (config.status.gif.gifFile)
     {
-      if (! config.status.gif.gifFile.isDirectory())
+      if (!config.status.gif.gifFile.isDirectory())
       {
         playGif(config.status.gif.gifFile);
       }
@@ -789,19 +905,18 @@ void TaskScreenDrawer(void *pvParameters)
     else
     {
       // No gif file :'(
-      Serial.print("DisplayReady");
     }
 
     if (!config.display.loopGifEnabled)
     {
       // Go get the next file
-       config.status.gif.gifFile = root.openNextFile();
+      config.status.gif.gifFile = root.openNextFile();
 
-      if (! config.status.gif.gifFile)
+      if (!config.status.gif.gifFile)
       {
         root.close();
         root = FILESYSTEM.open(config.gifConfig.gifDir);
-         config.status.gif.gifFile = root.openNextFile();
+        config.status.gif.gifFile = root.openNextFile();
       }
     }
     else
@@ -835,6 +950,15 @@ void TaskServer(void *pvParameters)
   server.on("/setColor", setColor);
 
   server.on("/updateScrollText", setScrollText);
+
+  server.on("/upload", HTTP_POST, []()
+            { server.send(200, "text/plain", "File Uploaded OK"); }, handleUpload);
+
+  server.on("/listfiles", handleListFiles);
+
+  server.on("/list",handleListFiles);
+
+  server.on("/file", HTTP_GET, handleFileRequest);
 
   server.begin();
 

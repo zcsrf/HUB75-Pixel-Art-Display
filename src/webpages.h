@@ -245,7 +245,7 @@ function downloadDeleteButton(filename, action) {
 function showUploadButtonFancy() {
   document.getElementById("detailsheader").innerHTML = "<h3>Upload File<h3>"
   document.getElementById("status").innerHTML = "";
-  var uploadform = "<form method = \"POST\" action = \"/\" enctype=\"multipart/form-data\"><input type=\"file\" name=\"data\"/><input type=\"submit\" name=\"upload\" value=\"Upload\" title = \"Upload File\"></form>"
+  var uploadform = "<form method = \"POST\" action = \"/upload\" enctype=\"multipart/form-data\"><input type=\"file\" name=\"data\"/><input type=\"submit\" name=\"upload\" value=\"Upload\" title = \"Upload File\"></form>"
   document.getElementById("fileList").innerHTML = uploadform;
   var uploadform =
   "<form id=\"upload_form\" enctype=\"multipart/form-data\" method=\"post\">" +
@@ -291,7 +291,7 @@ function uploadFile() {
   ajax.addEventListener("load", completeHandler, false); // doesnt appear to ever get called even upon success
   ajax.addEventListener("error", errorHandler, false);
   ajax.addEventListener("abort", abortHandler, false);
-  ajax.open("POST", "/");
+  ajax.open("POST", "/upload");
   ajax.send(formdata);
 }
 function progressHandler(event) {
