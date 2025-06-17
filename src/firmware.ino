@@ -176,7 +176,7 @@ void GIFCloseFile(void *pHandle)
 int32_t GIFReadFile(GIFFILE *pFile, uint8_t *pBuf, int32_t iLen)
 {
   int32_t iBytesRead = iLen;
-  
+
   File *f = static_cast<File *>(pFile->fHandle);
   // Note: If you read a file all the way to the last byte, seek() stops working
   if ((pFile->iSize - pFile->iPos) < iLen)
@@ -217,8 +217,8 @@ void ShowGIF(char *name)
     if (y_offset < 0)
       y_offset = 0;
 
-    //Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
-    //Serial.flush();
+    // Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
+    // Serial.flush();
 
     while (gif.playFrame(true, NULL))
     {
@@ -226,11 +226,13 @@ void ShowGIF(char *name)
       {
         if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
         {
-          gfx_layer_bg.dim(150);
-          gfx_layer_fg.dim(255);
-          // TODO: Pick the best compositor or make a new one?
-          //gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
-          //gfx_compositor.Siloette(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+          // We don't need to dim...
+          // gfx_layer_bg.dim(150);
+          // gfx_layer_fg.dim(255);
+
+          // make a compositor combine that allows somewhat of a black color mix on the bg
+          // gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+          // gfx_compositor.Siloette(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
           gfx_compositor.Stack(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
 
           /*if ((millis() - start_tick) > 50000)
@@ -242,10 +244,8 @@ void ShowGIF(char *name)
         }
       }
     }
-
     gif.close();
   }
-
 } /* ShowGIF() */
 
 void rebootESP(String message)
@@ -417,6 +417,7 @@ void toggleLoopGif()
       config.display.loopGifEnabled = (server.arg(0) == "on");
       server.send(200);
       preferences.putBool("loopGif", config.display.loopGifEnabled);
+      Serial.println("Changing Loop Gif State");
     }
     else
     {
@@ -527,6 +528,102 @@ void handleListFiles()
   server.send(200, "text/html", listFiles(true, page, config.gifConfig.maxGIFsPerPage));
 }
 
+void handleListFilesAlt()
+{
+  File root = LittleFS.open("/");
+  if (!root || !root.isDirectory())
+  {
+    server.send(500, "text/plain", "Failed to open /images");
+    return;
+  }
+
+  File file = root.openNextFile();
+  String json = "[";
+  bool first = true;
+  while (file)
+  {
+    if (!file.isDirectory())
+    {
+      if (!first)
+        json += ",";
+      json += "\"" + String("") + file.name() + "\"";
+      first = false;
+    }
+    file = root.openNextFile();
+  }
+  json += "]";
+  server.send(200, "application/json", json);
+}
+
+void handleVersionFlash()
+{
+  // This functions will provide a JSON of home page dynamic values
+  String message = "{\"v\":\"";
+  message += "1:2:3";
+  message += "\"";
+
+  message += ",\"ff\":\"";
+  message += String(humanReadableSize((LittleFS.totalBytes() - LittleFS.usedBytes())));
+  message += "\"";
+
+  message += ",\"uf\":\"";
+  message += String(humanReadableSize(LittleFS.usedBytes()));
+  message += "\"";
+
+  message += ",\"tf\":\"";
+  message += String(humanReadableSize(LittleFS.totalBytes()));
+  message += "\"";
+
+  message += ",\"gs\":\"";
+  message += String(config.display.gifEnabled);
+  message += "\"";
+
+  message += ",\"cs\":\"";
+  message += String(config.display.clockEnabled);
+  message += "\"";
+
+  message += ",\"ls\":\"";
+  message += String(config.display.loopGifEnabled);
+  message += "\"";
+
+  message += ",\"ts\":\"";
+  message += String(config.display.scrollTextEnabled);
+  message += "\"";
+
+  message += ",\"ds\":\"";
+  message += String(config.display.displayBrightness);
+  message += "\"";
+
+  // Text Color
+  message += ",\"str\":\"";
+  message += String(config.status.textColor.red);
+  message += "\"";
+  message += ",\"stg\":\"";
+  message += String(config.status.textColor.green);
+  message += "\"";
+  message += ",\"stb\":\"";
+  message += String(config.status.textColor.blue);
+  message += "\"";
+
+  // Scroll Text Size
+  message += ",\"stf\":\"";
+  message += String(config.status.scrollText.scrollFontSize);
+  message += "\"";
+  
+  // Scroll Text Speed
+  message += ",\"sts\":\"";
+  message += String(config.status.scrollText.scrollSpeed);
+  message += "\"";
+
+  // Scroll Text 
+  message += ",\"stt\":\"";
+  message += String(config.status.scrollText.scrollText);
+
+  message += "\"}";
+
+  server.send(200, "application/json", message);
+}
+
 void handleFileRequest()
 {
   bool gifEnabledTemp = config.display.gifEnabled;
@@ -619,25 +716,28 @@ void setColor()
 
 void setScrollText()
 {
-  if (server.args() == 3)
-  {
-    if (server.hasArg("text") && server.hasArg("fontSize") && server.hasArg("speed"))
+
+    if (server.hasArg("text"))
     {
       config.status.scrollText.scrollText = server.arg("text");
-      config.status.scrollText.scrollFontSize = server.arg("fontSize").toInt();
-      config.status.scrollText.scrollSpeed = server.arg("speed").toInt();
-
-      server.send(200);
     }
-    else
+    if (server.hasArg("fontSize"))
+    {
+      config.status.scrollText.scrollFontSize = server.arg("fontSize").toInt();
+    }
+    if (server.hasArg("speed"))
+    {
+      config.status.scrollText.scrollSpeed = server.arg("speed").toInt();
+    }
+
+    if (!server.hasArg("text") && !server.hasArg("fontSize") && !server.hasArg("speed"))
     {
       server.send(400, "text/plain", "Missing parameters");
     }
-  }
-  else
-  {
-    server.send(400, "text/plain", "Missing parameter");
-  }
+    else
+    {
+      server.send(200);
+    }  
 }
 
 void setup()
@@ -956,9 +1056,13 @@ void TaskServer(void *pvParameters)
 
   server.on("/listfiles", handleListFiles);
 
-  server.on("/list",handleListFiles);
+  server.on("/listFilesAlt", handleListFilesAlt);
+
+  server.on("/list", handleListFiles);
 
   server.on("/file", HTTP_GET, handleFileRequest);
+
+  server.on("/j/vf", handleVersionFlash);
 
   server.begin();
 
