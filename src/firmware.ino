@@ -460,16 +460,6 @@ String humanReadableSize(const size_t bytes)
     return String(bytes / 1024.0 / 1024.0 / 1024.0) + " GB";
 }
 
-void SendWebsite()
-{
-  bool gifEnabledTemp = config.display.gifEnabled;
-
-  config.display.gifEnabled = false;
-  Serial.println("sending web page");
-  server.send(200, "text/html", index_html);
-  config.display.gifEnabled = gifEnabledTemp;
-}
-
 void toggleGif()
 {
 
@@ -649,10 +639,16 @@ void handleListFilesAlt()
   {
     if (!file.isDirectory())
     {
-      if (!first)
-        json += ",";
-      json += "\"" + String("") + file.name() + "\"";
-      first = false;
+      String name = file.name();
+      name.toLowerCase();
+
+      if (name.endsWith(".gif") || name.endsWith(".jpg") || name.endsWith(".mjpeg"))
+      {
+        if (!first)
+          json += ",";
+        json += "\"" + name + "\"";
+        first = false;
+      }
     }
     file = root.openNextFile();
   }
@@ -775,7 +771,7 @@ void handleFileRequest()
     else if (fileAction == "show")
     {
       logmessage += " previewing";
-      delay(100); // simulate processing
+
       File imageFile = LittleFS.open(fileName, "r");
       server.streamFile(imageFile, "image/gif");
       imageFile.close();
@@ -1016,11 +1012,10 @@ int drawCallback(JPEGDRAW *pDraw)
     {
       int index = y * pDraw->iWidth + x; // line-by-line
       uint16_t color = p[index];
-      layer_draw_callback_alt(pDraw->x+ x,pDraw->y + y,color);
+      layer_draw_callback_alt(pDraw->x + x, pDraw->y + y, color);
     }
   }
 
- 
   return 1; //
 }
 
@@ -1136,13 +1131,25 @@ void TaskScreenDrawer(void *pvParameters)
   else if (!config.status.gif.gifFile)
   {
     config.status.gif.gifFile = root.openNextFile();
+
+    while (config.status.gif.gifFile)
+    {
+      if (!config.status.gif.gifFile.isDirectory())
+      {
+        String name = config.status.gif.gifFile.name();
+        name.toLowerCase();
+
+        if (name.endsWith(".gif") || name.endsWith(".jpg") || name.endsWith(".mjpeg"))
+        {
+          break;
+        }
+      }
+      config.status.gif.gifFile = root.openNextFile();
+    }
   }
 
   for (;;)
   {
-
-#ifdef ANIMATION
-
     // noisyScreenRandomizer();
 
     if (!client || !client.connected())
@@ -1150,138 +1157,84 @@ void TaskScreenDrawer(void *pvParameters)
       client = serverTcp.available();
     }
 
-    while (client && client.available())
+    if (!client || !client.available())
     {
-      uint8_t b = client.read();
-
-      // JPEG start marker: 0xFFD8
-      if (!capturing && b == 0xFF && client.peek() == 0xD8)
+      if (config.status.gif.gifFile)
       {
-        capturing = true;
-        bufferPos = 0;
-        jpegBuffer[bufferPos++] = b;
-        jpegBuffer[bufferPos++] = client.read(); // consume 0xD8
-        continue;
-      }
-
-      if (capturing)
-      {
-        if (bufferPos < BUFFER_SIZE)
-          jpegBuffer[bufferPos++] = b;
-
-        // JPEG end marker: 0xFFD9
-        if (b == 0xD9 && jpegBuffer[bufferPos - 2] == 0xFF)
+        if (!config.status.gif.gifFile.isDirectory())
         {
-          capturing = false;
-
-          // Decode JPEG
-          jpeg.openRAM(jpegBuffer, bufferPos, drawCallback);
-          jpeg.setMaxOutputSize(1);
-          jpeg.decode(0, 0, 0);
-          jpeg.close();
-          bufferPos = 0;
+          playGif(config.status.gif.gifFile);
         }
       }
-
-      // vTaskDelay(pdMS_TO_TICKS(1));
-    }
-/* // Old RAW Way of doing
-    WiFiClient client = serverTcp.available();
-
-    if (client)
-    {
-      Serial.println("Client connected");
-      while (client.connected())
+      else
       {
-        size_t bytesRead = 0;
-        while (bytesRead < FRAME_SIZE)
-        {
-          int len = client.read(frameBuffer + bytesRead, FRAME_SIZE - bytesRead);
-          if (len < 0)
-          {
-            Serial.println("Read error");
-            client.stop();
-            break;
-          }
-          if (len == 0)
-          {
-            // No data available yet, give it a moment
-            delay(1);
-            continue;
-          }
-          bytesRead += len;
-        }
-
-        if (bytesRead == FRAME_SIZE)
-        {
-          // Draw the frame
-          for (int i = 0, pixel = 0; i < FRAME_SIZE; i += 2, pixel++)
-          {
-            uint16_t rgb565 = frameBuffer[i] | (frameBuffer[i + 1] << 8);
-
-            // Extract RGB components (5 bits R, 6 bits G, 5 bits B)
-            uint8_t r = (rgb565 >> 11) & 0x1F;
-            uint8_t g = (rgb565 >> 5) & 0x3F;
-            uint8_t b = rgb565 & 0x1F;
-
-            // No need to convert... dma_display->drawPixel does that
-            r = (r << 3) | (r >> 2);
-            g = (g << 2) | (g >> 4);
-            b = (b << 3) | (b >> 2);
-
-            int x = pixel % WIDTH;
-            int y = pixel / WIDTH;
-
-            //gfx_layer_fg.setPixel(x,y,r,g,b);
-            layer_draw_callback(x,y,r,g,b);
-          }
-
-        }
+        // No gif file :'(
       }
-        Serial.println("Client disconnected");
-        client.stop();
 
-    }
-*/
-#elif
-    if (config.status.gif.gifFile)
-    {
-      if (!config.status.gif.gifFile.isDirectory())
+      if (!config.display.loopGifEnabled)
       {
-        playGif(config.status.gif.gifFile);
-      }
-    }
-    else
-    {
-      // No gif file :'(
-    }
-
-    if (!config.display.loopGifEnabled)
-    {
-      // Go get the next file
-      config.status.gif.gifFile = root.openNextFile();
-
-      if (!config.status.gif.gifFile)
-      {
-        root.close();
-        root = FILESYSTEM.open(config.gifConfig.gifDir);
+        // Go get the next file
         config.status.gif.gifFile = root.openNextFile();
+
+        if (!config.status.gif.gifFile)
+        {
+          root.close();
+          root = FILESYSTEM.open(config.gifConfig.gifDir);
+          config.status.gif.gifFile = root.openNextFile();
+        }
+      }
+      else
+      {
+        // we are looping...
       }
     }
     else
     {
-      // we are looping...
+
+      while (client && client.available())
+      {
+        uint8_t b = client.read();
+
+        // JPEG start marker: 0xFFD8
+        if (!capturing && b == 0xFF && client.peek() == 0xD8)
+        {
+          capturing = true;
+          bufferPos = 0;
+          jpegBuffer[bufferPos++] = b;
+          jpegBuffer[bufferPos++] = client.read(); // consume 0xD8
+          continue;
+        }
+
+        if (capturing)
+        {
+          if (bufferPos < BUFFER_SIZE)
+            jpegBuffer[bufferPos++] = b;
+
+          // JPEG end marker: 0xFFD9
+          if (b == 0xD9 && jpegBuffer[bufferPos - 2] == 0xFF)
+          {
+            capturing = false;
+
+            // Decode JPEG
+            jpeg.openRAM(jpegBuffer, bufferPos, drawCallback);
+            jpeg.setMaxOutputSize(1);
+            jpeg.decode(0, 0, 0);
+            jpeg.close();
+            bufferPos = 0;
+          }
+        }
+        // Do not... do not add any delay
+        // vTaskDelay(pdMS_TO_TICKS(1));
+      }
     }
-
-#endif
-
-    // vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 
 void TaskServer(void *pvParameters)
 {
-  server.on("/", SendWebsite);
+  // server.on("/", SendWebsite);
+
+  server.serveStatic("/", LittleFS, "/index.html");
 
   server.onNotFound([]()
                     { server.send(404, "text/plain", "Not found"); });
