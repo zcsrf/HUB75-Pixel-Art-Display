@@ -2,137 +2,100 @@
 
 A Wi-Fi-enabled LED Pixel Art Display based on HUB75E panels, powered by an ESP32.
 
-> **Note**: The colors are much more vibrant in person, and the flickering only appears on camera.
-
-<p align="center">
-<img src="https://github.com/mzashh/HUB75-Pixel-Art-Display/blob/main/images/display.jpg" width="500">
-</p>
-
-<p align="center">
-<img src="https://github.com/mzashh/HUB75-Pixel-Art-Display/blob/main/images/preview.gif" width="500">
-</p>
-
----
+This is based on the work of [mzashh - HUB75-Pixel-Art-Display](https://github.com/mzashh/HUB75-Pixel-Art-Display) with lots of customized changes
 
 ## Changelog
 
-### Version 0.4.5a (Major Update)
-- Added an **NTP Clock**.
-- Added **Scrolling Custom Text**.
-- Clock and text colors can now be changed via the WebUI.
-- Text font and scroll speed are configurable.
-- Added toggles for:
-  - GIF display
-  - Clock
-  - Scrolling text
-- Added a toggle for GIF looping.
-
-### Version 0.2.5a
-- Switched the file system to **LittleFS**.
-
----
+- To be devolped
 
 ## Features
 
-- **Wi-Fi Connectivity**: On startup, the panel connects to the Wi-Fi network and displays the firmware version, IP address, RSSI, and Wi-Fi SSID for 4 seconds.
+- **Wi-Fi Connectivity**: 
+  - Connects to the best AP
+  - On startup, the panel connects to the Wi-Fi network and displays the firmware version, IP address, RSSI, and Wi-Fi SSID for some time (to be tunned later on)
 - **GIF Playback**: Plays GIF files stored in the ESP32's SPI Flash.
+- **MJPEG Streaming**: Allows streaming video to the ESP32 using ffmpeg, mjpeg and TCP.
 - **NTP Clock**: Displays the current time (configurable GMT and DST offsets in the firmware).
 - **WebUI**:
   - Upload, delete, download, and play GIF files.
   - Control brightness via a slider.
-  - Authentication functionality for secure access.
-  - Remote rebooting of the ESP32.
-- **Custom Scrolling Text**: Replace the clock with custom scrolling text.
-- **WebUI Customization**:
   - Change text and clock colors.
   - Adjust text scroll speed and size.
-- **Playback Toggles**:
   - Enable or disable GIF playback, clock, or scrolling text individually.
   - Toggle GIF looping to either loop a single GIF or play all stored GIFs sequentially.
-
-<p align="center">
-<img src="https://github.com/mzashh/HUB75-Pixel-Art-Display/blob/main/images/WUI.png" width="823" height="600">
-</p>
+  - Replace the clock with custom scrolling text.
+  - Remote rebooting of the ESP32. - To be implemented
+  - Modern UI based on Bootstrap
+- **API Endpoints**: Allow remote controlling using NodeRed or similar
+- **Preferences**: Some variables are stored and recovered after boot.
 
 ---
 
 ## Planned Features
 
-> These features are tentative and may not be implemented due to time constraints or motivation.
+> Some of these might not be possible together (memory / flash constrains?)
 
-- Proper date system
-- Weather display
-- Additional clock types and faces
-- Canvas drawing functionality
-- Stopwatch/Timer/Pomodoro modes
+- **JPEG Playback**: Plays JPEG stored in the ESP32's SPI Flash
+- **MJPEG Playback**:  Plays MJPEG stored in the ESP32's SPI Flash
+- **MJPEG Streaming**: Simple Overlay text over streaming MJPEG - Seems to be tricky (cpu constrain?)
+- **Animations**:
+  - Matrix
+  - Kaleidoscope
+  - Wormhole
+  - Star Wars, HyperDrive
+  - Dancing Blob
+  - Random under Drugs
+  * Plasma
+  * Noise portal
+  * Mandelbrot
+  * Julia Set
+- RAW streaming or use python to stream a dashboard using MJPEG
 
 ---
 
 ## Hardware Requirements
 
 - **HUB75 Panel**: Compatible with the [ESP32-HUB75-MatrixPanel-DMA library](https://github.com/mrfaptastic/ESP32-HUB75-MatrixPanel-DMA). By default, a 64x64 1/32 scan panel is supported.
-- **ESP32 Board**: ESP32, ESP32-S2, or ESP32-S3.
+- **ESP32 Board**: ESP32, ESP32-S2, or ESP32-S3
+
+You might have to change platformio.ini or something else depending on your hardware.
+
+As is, I am using an [aliexpress set](https://pt.aliexpress.com/item/1005007201147335.htm), this is not the best setup, no PSRAM.
+
+Also my Led Panel arrived with damage on two LEDs on one corner.
 
 ### Pin Configuration
 
-> **Note**: GPIO 34+ on the ESP32 are input-only. GPIO 5, 23, 18, and 19 are reserved for future SD card support.
-
-| Panel | ESP32 GPIO Pin |
-|--------|----------|
-| R1     | 25       |
-| G1     | 26       |
-| B1     | 27       |
-| R2     | 14       |
-| G2     | 12       |
-| B2     | 13       |
-| A      | 22       |
-| B      | 32       |
-| C      | 33       |
-| D      | 17       |
-| E      | 21       |
-| OE     | 15       |
-| CLK    | 16       |
-| LAT    | 4        |
-
----
+>Check the panel_config.h, adjust as required.
 
 ## Firmware
 
 ### Development Tools
-- **Arduino IDE** (v1.8.19) or **PlatformIO**.
+- **PlatformIO**:
+  - If you plan on streaming stuff, you will need the compile flags.
 
 ### Required Libraries
 - [ESP32-HUB75-MatrixPanel-DMA](https://github.com/mrfaptastic/ESP32-HUB75-MatrixPanel-DMA)
 - [AnimatedGIF](https://github.com/bitbank2/AnimatedGIF)
 - [GFX_Lite](https://github.com/mrcodetastic/GFX_Lite)
-- [ESPAsyncWebServer](https://github.com/me-no-dev/ESPAsyncWebServer)
-- [AsyncTCP](https://github.com/me-no-dev/AsyncTCP)
+- TODO: Add other libraries -> **bitbank2/JPEGDEC**
 
 ### Configuration
 - **Wi-Fi**:
-  - Change the Wi-Fi SSID and password in `firmware.ino` (only 2.4GHz networks are supported).
-- **WebUI**:
-  - Update the WebUI username and password in `firmware.ino`.
-- **Brightness**:
-  - Set the default brightness in `firmware.ino` (range: 0–255).
+  - Change the Wi-Fi SSID and password in `device_config.h` (only 2.4GHz networks are supported).
 - **Panel Resolution**:
-  - Use other resolution panels as per the examples in the [ESP32-HUB75-MatrixPanel-DMA library](https://github.com/mrfaptastic/ESP32-HUB75-MatrixPanel-DMA).
+  - For now we stick with 64x64... Higher than this and we get into ram constrains for much of the stuff.
 - **Authentication**:
-  - Disable authentication by changing `false` to `true` on line 258 in `webserver.ino`.
+  - I ditched the authentication...
 
 ---
 
 ## Case and Assembly
 
-> For smooth assembly and answers to most questions, refer to the project documentation on my website.
-
-- **3D Printable Files for the Case and the Diffuser**:
-  - [Printables](https://www.printables.com/model/875329-hub75-pixel-art-display-case)
-- **Project Documentation and Assembly**:
-  - [My Website](https://mzashh.weebly.com/pixel-art-display.html)
-   
+Check [mzashh - HUB75-Pixel-Art-Display](https://github.com/mzashh/HUB75-Pixel-Art-Display) if you want an example of case and diffuser, I still didn't have time to do something for my hardware.
 
 ## Credits
 
+- **HUB75-Pixel-Art-Display**: The main repo that motivated me to play arround with this [mzashh - HUB75-Pixel-Art-Display](https://github.com/mzashh/HUB75-Pixel-Art-Display)`
 - **GIF Playback**: Based on examples from the [ESP32-HUB75-MatrixPanel-DMA library](https://github.com/mrfaptastic/ESP32-HUB75-MatrixPanel-DMA).
-- **WebUI**: Inspired by the [ESP32 Async WebServer File Upload Example](https://github.com/smford/esp32-asyncwebserver-fileupload-example).
+
