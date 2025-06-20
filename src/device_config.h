@@ -2,7 +2,16 @@
 #define DEVICE_CONFIG_h
 
 #include <Arduino.h>
-#include <FS.h> // File System for Web Server Files
+#include <FS.h>
+
+#define HOSTNAME "led-panel"
+#define FIRMWARE_VERSION "v1.0.0" // Firmware version hard-coded
+#define FILESYSTEM LittleFS       // File system in use
+
+#define BUFFER_SIZE 4096 // Size of buffer for MJPEG / JPEG packets
+#define TCP_PORT 12345   // Port used for mjpeg tcp streaming
+
+#define ANIMATION // Used to test specific animations under development / bypass all the other stuff
 
 struct Color
 {
@@ -65,6 +74,7 @@ struct DeviceStatus
     Color textColor;
     ScrollTextStatus scrollText;
     GifStatus gif;
+    File fsUploadFile;
 };
 
 struct Config
@@ -76,45 +86,5 @@ struct Config
     struct DeviceStatus status;
 };
 
-struct Config bootDefaults = {
-    .wifi = {
-        .ssid = "Rede-IOT",        // Your WiFi SSID
-        .password = "madalenaIOT", // Your WiFi password
-    },
-    .time = {
-        .ntpServer = "10.200.0.1", // our local time server
-        .gmtOffsetSec = 0,         // Lisbon is at 0
-        .daylightOffsetSec = 3600, // Summer timezone
-    },
-    .display = {
-        .clockEnabled = false,      // we don't want the clock showing
-        .scrollTextEnabled = false, // we also don't want the text showing
-        .gifEnabled = true,         // We want to see gifs
-        .loopGifEnabled = true,     // We want our gifs to be on loop
-        .displayBrightness = 100,   // That should be an okay value
-    },
-    .gifConfig = {
-        .gifDir = "/", // play all GIFs in this directory on the SD card
-        .maxGIFsPerPage = 4, // Change this value to set the maximum number of GIFs per page (keep this at 4)
-    },
-    .status = {.validTime = false,   // If we have or not a valid time
-               .clockTime = "12:00", // Where we store the "current time" do be displayed
-               .tickTurn = false, // To show or not to show the `:`
-               .textColor = {.red = 255, .green = 255, .blue = 255},
-               .scrollText = {
-                   .scrollText = "Hello",
-                   .scrollFontSize = 2, // Default font size (1 = small, 2 = normal, 3 = big, 4 = huge)
-                   .scrollSpeed = 18,   // Default scroll speed (1 = fastest, 150 = slowest)
-                   .textXPosition = 64, // Will start off screen
-                   .textYPosition = 24, // center of screen (half of the text height)
-               },
-               .gif = {
-                   .currentGifPath = "",   // Store the current GIF file path
-                   .requestedGifPath = "", // Path of the GIF requested by the user
-                   .filePath = {0},        // Our open file path
-                   .currentFile = File(),
-                   .gifFile = File(),
-               }},
-};
 
 #endif
