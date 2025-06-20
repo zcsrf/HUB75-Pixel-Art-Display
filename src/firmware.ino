@@ -66,12 +66,12 @@ const int PORT = 12345;
 const int WIDTH = 64;
 const int HEIGHT = 64;
 const int FRAME_SIZE = WIDTH * HEIGHT * 2; // 2 bytes per pixel for RGB565
-//uint8_t frameBuffer[FRAME_SIZE];
+// uint8_t frameBuffer[FRAME_SIZE];
 
 JPEGDEC jpeg;
 #define BUFFER_SIZE 4096
 uint8_t *jpegBuffer;
-//uint8_t jpegBuffer[BUFFER_SIZE];
+// uint8_t jpegBuffer[BUFFER_SIZE];
 bool capturing = false;
 int bufferPos = 0;
 
@@ -85,6 +85,44 @@ void layer_draw_callback_alt(int16_t x, int16_t y, uint16_t color)
   dma_display->drawPixel(x, y, color);
 }
 
+String scanAndConnectToStrongestNetwork()
+{
+  int i_strongest = -1;
+  int32_t rssi_strongest = -100;
+  Serial.printf("Start scanning for SSID %s\r\n", config.wifi.ssid);
+
+  int n = WiFi.scanNetworks(); // WiFi.scanNetworks will return the number of networks found
+  Serial.println("Scan done.");
+
+  if (n == 0)
+  {
+    Serial.println("No networks found!");
+    return ("");
+  }
+  else
+  {
+    Serial.printf("%d networks found:", n);
+    for (int i = 0; i < n; ++i)
+    {
+      // Print SSID and RSSI for each network found
+      Serial.printf("%d: BSSID: %s  %2ddBm, %3d%%  %9s  %s\r\n", i, WiFi.BSSIDstr(i).c_str(), WiFi.RSSI(i), constrain(2 * (WiFi.RSSI(i) + 100), 0, 100), (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "open" : "encrypted", WiFi.SSID(i).c_str());
+      if ((String(config.wifi.ssid) == String(WiFi.SSID(i)) && (WiFi.RSSI(i)) > rssi_strongest))
+      {
+        rssi_strongest = WiFi.RSSI(i);
+        i_strongest = i;
+      }
+    }
+  }
+
+  if (i_strongest < 0)
+  {
+    Serial.printf("No network with SSID %s found!\r\n", config.wifi.ssid);
+    return ("");
+  }
+  Serial.printf("SSID match found at %d. Connecting...\r\n", i_strongest);
+  WiFi.begin(config.wifi.ssid, config.wifi.password, 0, WiFi.BSSID(i_strongest));
+  return (WiFi.BSSIDstr(i_strongest));
+}
 
 void GIFDraw(GIFDRAW *pDraw)
 {
@@ -850,9 +888,9 @@ void setup()
 
   Serial.print("\nConnecting to Wifi: ");
   WiFi.setSleep(false);
-
-  WiFi.begin(config.wifi.ssid.c_str(), config.wifi.password.c_str());
   WiFi.setHostname(HOSTNAME);
+
+  scanAndConnectToStrongestNetwork();
 
   while (WiFi.status() != WL_CONNECTED)
   {
@@ -886,8 +924,8 @@ void setup()
   Serial.println();
 
   configTime(config.time.gmtOffsetSec, config.time.daylightOffsetSec, config.time.ntpServer.c_str()); // get time from NTP server
-Serial.println(ESP.getFreeHeap());
-Serial.printf("Min free heap: %d\n", esp_get_minimum_free_heap_size());
+  Serial.println(ESP.getFreeHeap());
+  Serial.printf("Min free heap: %d\n", esp_get_minimum_free_heap_size());
 
   // disableCore0WDT()
 
@@ -900,21 +938,20 @@ Serial.printf("Min free heap: %d\n", esp_get_minimum_free_heap_size());
       ,
       NULL // Task parameter which can modify the task behavior. This must be passed as pointer to void.
       ,
-      0 // Priority
+      15 // Priority
       ,
       &screenTaskHandle, // Task handle is not used here - simply pass NULL
-      0);
+      1);
 
-  xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 1);
+  xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 0);
 
   xTaskCreate(
       TaskScreenInfoLayer, "TaskScreenInfoLayer",
       1024,
       NULL,
-      1,
+      0,
       NULL);
 }
-
 
 File findGifByPath(File root, const String &targetPath)
 {
@@ -973,14 +1010,18 @@ int drawCallback(JPEGDRAW *pDraw)
 {
 
   uint16_t *p = (uint16_t *)pDraw->pPixels;
-  for (int y = 0; y < pDraw->iHeight; y++) {
-    for (int x = 0; x < pDraw->iWidthUsed; x++) {
-      int index = y * pDraw->iWidth + x;  // line-by-line
+  for (int y = 0; y < pDraw->iHeight; y++)
+  {
+    for (int x = 0; x < pDraw->iWidthUsed; x++)
+    {
+      int index = y * pDraw->iWidth + x; // line-by-line
       uint16_t color = p[index];
       layer_draw_callback_alt(pDraw->x+ x,pDraw->y + y,color);
     }
   }
-  return 1; // 
+
+ 
+  return 1; //
 }
 
 void TaskScreenDrawer(void *pvParameters)
@@ -1054,10 +1095,12 @@ void TaskScreenDrawer(void *pvParameters)
 
   root = FILESYSTEM.open(config.gifConfig.gifDir);
 
- jpegBuffer = (uint8_t *)malloc(BUFFER_SIZE);
-  if (!jpegBuffer) {
+  jpegBuffer = (uint8_t *)malloc(BUFFER_SIZE);
+  if (!jpegBuffer)
+  {
     Serial.println("Failed to allocate JPEG buffer");
-    while (1);
+    while (1)
+      ;
   }
 
   // WiFiUDP udp;
@@ -1068,7 +1111,7 @@ void TaskScreenDrawer(void *pvParameters)
   serverTcp.begin();
 
   unsigned int temp = uxTaskGetStackHighWaterMark(nullptr);
-  printf("high stack water mark is %u\n", temp);  
+  printf("high stack water mark is %u\n", temp);
 
   while (!root)
   {
@@ -1101,48 +1144,47 @@ void TaskScreenDrawer(void *pvParameters)
 #ifdef ANIMATION
 
     // noisyScreenRandomizer();
-    Serial.flush();
 
     if (!client || !client.connected())
     {
       client = serverTcp.available();
-      Serial.flush();
     }
 
-   while (client && client.available()) {
-    Serial.flush();
-    uint8_t b = client.read();
+    while (client && client.available())
+    {
+      uint8_t b = client.read();
 
-    // JPEG start marker: 0xFFD8
-    if (!capturing && b == 0xFF && client.peek() == 0xD8) {
-      Serial.flush();
-      capturing = true;
-      bufferPos = 0;
-      jpegBuffer[bufferPos++] = b;
-      jpegBuffer[bufferPos++] = client.read();  // consume 0xD8
-      continue;
-    }
-
-    
-    if (capturing) {
-      if (bufferPos < BUFFER_SIZE)
-        jpegBuffer[bufferPos++] = b;
-
-      // JPEG end marker: 0xFFD9
-      if (b == 0xD9 && jpegBuffer[bufferPos - 2] == 0xFF) {
-        capturing = false;
-
-        // Decode JPEG
-        jpeg.openRAM(jpegBuffer, bufferPos, drawCallback);
-        jpeg.setPixelType(RGB565_FAST);
-        jpeg.decode(0, 0, 0);
-        jpeg.close();
+      // JPEG start marker: 0xFFD8
+      if (!capturing && b == 0xFF && client.peek() == 0xD8)
+      {
+        capturing = true;
         bufferPos = 0;
+        jpegBuffer[bufferPos++] = b;
+        jpegBuffer[bufferPos++] = client.read(); // consume 0xD8
+        continue;
       }
-    }   
 
-     //vTaskDelay(pdMS_TO_TICKS(1));
-  }
+      if (capturing)
+      {
+        if (bufferPos < BUFFER_SIZE)
+          jpegBuffer[bufferPos++] = b;
+
+        // JPEG end marker: 0xFFD9
+        if (b == 0xD9 && jpegBuffer[bufferPos - 2] == 0xFF)
+        {
+          capturing = false;
+
+          // Decode JPEG
+          jpeg.openRAM(jpegBuffer, bufferPos, drawCallback);
+          jpeg.setMaxOutputSize(1);
+          jpeg.decode(0, 0, 0);
+          jpeg.close();
+          bufferPos = 0;
+        }
+      }
+
+      // vTaskDelay(pdMS_TO_TICKS(1));
+    }
 /* // Old RAW Way of doing
     WiFiClient client = serverTcp.available();
 
