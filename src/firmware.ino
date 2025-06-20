@@ -9,6 +9,9 @@
 #include <AnimatedGIF.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <WiFi.h>
+#include <WifiUdp.h>
+
+#include <JPEGDEC.h>
 
 #include <GFX_Layer.hpp>
 #include <WebServer.h>
@@ -28,11 +31,14 @@
 Preferences preferences;
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 WebServer server(80);
+
 AnimatedGIF gif;
 
 tm timeinfo;
 
 struct Config config = bootDefaults;
+
+#define ANIMATION
 
 // function defaults
 String listFiles(bool ishtml = false);
@@ -55,11 +61,30 @@ GFX_Layer gfx_layer_fg(64, 64, layer_draw_callback); // foreground
 
 GFX_LayerCompositor gfx_compositor(layer_draw_callback);
 
+// Initial video streaming test
+const int PORT = 12345;
+const int WIDTH = 64;
+const int HEIGHT = 64;
+const int FRAME_SIZE = WIDTH * HEIGHT * 2; // 2 bytes per pixel for RGB565
+//uint8_t frameBuffer[FRAME_SIZE];
+
+JPEGDEC jpeg;
+#define BUFFER_SIZE 4096
+uint8_t *jpegBuffer;
+//uint8_t jpegBuffer[BUFFER_SIZE];
+bool capturing = false;
+int bufferPos = 0;
+
 void layer_draw_callback(int16_t x, int16_t y, uint8_t r_data, uint8_t g_data, uint8_t b_data)
 {
-
   dma_display->drawPixel(x, y, dma_display->color565(r_data, g_data, b_data));
 }
+
+void layer_draw_callback_alt(int16_t x, int16_t y, uint16_t color)
+{
+  dma_display->drawPixel(x, y, color);
+}
+
 
 void GIFDraw(GIFDRAW *pDraw)
 {
@@ -247,6 +272,48 @@ void ShowGIF(char *name)
     gif.close();
   }
 } /* ShowGIF() */
+
+uint16_t randomRGB565()
+{
+  uint8_t r = rand() % 32; // 5 bits
+  uint8_t g = rand() % 64; // 6 bits
+  uint8_t b = rand() % 32; // 5 bits
+  return (r << 11) | (g << 5) | b;
+}
+
+void noisyScreenRandomizer()
+{
+
+  for (int y = 0; y < 64; y++)
+  {
+    for (int x = 0; x < 64; x++)
+    {
+      gfx_layer_bg.drawPixel(x, y, randomRGB565());
+    }
+  }
+
+  if (gfx_layer_mutex != NULL)
+  {
+    if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
+    {
+      // We don't need to dim...
+      // gfx_layer_bg.dim(150);
+      // gfx_layer_fg.dim(255);
+
+      // make a compositor combine that allows somewhat of a black color mix on the bg
+      // gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+      // gfx_compositor.Siloette(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+      gfx_compositor.Stack(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+
+      /*if ((millis() - start_tick) > 50000)
+      { // we'll get bored after about 50 seconds of the same looping gif
+        // break; // Will change to the next gif in the list after the set time.
+      }
+      */
+      xSemaphoreGive(gfx_layer_mutex); // After accessing the shared resource give the mutex and allow other processes to access it
+    }
+  }
+}
 
 void rebootESP(String message)
 {
@@ -609,13 +676,13 @@ void handleVersionFlash()
   message += ",\"stf\":\"";
   message += String(config.status.scrollText.scrollFontSize);
   message += "\"";
-  
+
   // Scroll Text Speed
   message += ",\"sts\":\"";
   message += String(config.status.scrollText.scrollSpeed);
   message += "\"";
 
-  // Scroll Text 
+  // Scroll Text
   message += ",\"stt\":\"";
   message += String(config.status.scrollText.scrollText);
 
@@ -717,27 +784,27 @@ void setColor()
 void setScrollText()
 {
 
-    if (server.hasArg("text"))
-    {
-      config.status.scrollText.scrollText = server.arg("text");
-    }
-    if (server.hasArg("fontSize"))
-    {
-      config.status.scrollText.scrollFontSize = server.arg("fontSize").toInt();
-    }
-    if (server.hasArg("speed"))
-    {
-      config.status.scrollText.scrollSpeed = server.arg("speed").toInt();
-    }
+  if (server.hasArg("text"))
+  {
+    config.status.scrollText.scrollText = server.arg("text");
+  }
+  if (server.hasArg("fontSize"))
+  {
+    config.status.scrollText.scrollFontSize = server.arg("fontSize").toInt();
+  }
+  if (server.hasArg("speed"))
+  {
+    config.status.scrollText.scrollSpeed = server.arg("speed").toInt();
+  }
 
-    if (!server.hasArg("text") && !server.hasArg("fontSize") && !server.hasArg("speed"))
-    {
-      server.send(400, "text/plain", "Missing parameters");
-    }
-    else
-    {
-      server.send(200);
-    }  
+  if (!server.hasArg("text") && !server.hasArg("fontSize") && !server.hasArg("speed"))
+  {
+    server.send(400, "text/plain", "Missing parameters");
+  }
+  else
+  {
+    server.send(200);
+  }
 }
 
 void setup()
@@ -782,6 +849,8 @@ void setup()
   Serial.println("Loading Configuration ...");
 
   Serial.print("\nConnecting to Wifi: ");
+  WiFi.setSleep(false);
+
   WiFi.begin(config.wifi.ssid.c_str(), config.wifi.password.c_str());
   WiFi.setHostname(HOSTNAME);
 
@@ -817,6 +886,8 @@ void setup()
   Serial.println();
 
   configTime(config.time.gmtOffsetSec, config.time.daylightOffsetSec, config.time.ntpServer.c_str()); // get time from NTP server
+Serial.println(ESP.getFreeHeap());
+Serial.printf("Min free heap: %d\n", esp_get_minimum_free_heap_size());
 
   // disableCore0WDT()
 
@@ -825,24 +896,25 @@ void setup()
   xTaskCreatePinnedToCore(
       TaskScreenDrawer, "TaskScreenDrawer" // A name just for humans
       ,
-      8000 // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
+      12000 // The stack size can be checked by calling `uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);`
       ,
       NULL // Task parameter which can modify the task behavior. This must be passed as pointer to void.
       ,
       0 // Priority
       ,
       &screenTaskHandle, // Task handle is not used here - simply pass NULL
-      1);
+      0);
 
-  xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 0);
+  xTaskCreatePinnedToCore(TaskServer, "serverTask", 4096, NULL, 3, &serverTaskHandle, 1);
 
   xTaskCreate(
       TaskScreenInfoLayer, "TaskScreenInfoLayer",
       1024,
       NULL,
-      0,
+      1,
       NULL);
 }
+
 
 File findGifByPath(File root, const String &targetPath)
 {
@@ -895,6 +967,20 @@ void loop()
   }
 
   delay(1000);
+}
+
+int drawCallback(JPEGDRAW *pDraw)
+{
+
+  uint16_t *p = (uint16_t *)pDraw->pPixels;
+  for (int y = 0; y < pDraw->iHeight; y++) {
+    for (int x = 0; x < pDraw->iWidthUsed; x++) {
+      int index = y * pDraw->iWidth + x;  // line-by-line
+      uint16_t color = p[index];
+      layer_draw_callback_alt(pDraw->x+ x,pDraw->y + y,color);
+    }
+  }
+  return 1; // 
 }
 
 void TaskScreenDrawer(void *pvParameters)
@@ -968,6 +1054,22 @@ void TaskScreenDrawer(void *pvParameters)
 
   root = FILESYSTEM.open(config.gifConfig.gifDir);
 
+ jpegBuffer = (uint8_t *)malloc(BUFFER_SIZE);
+  if (!jpegBuffer) {
+    Serial.println("Failed to allocate JPEG buffer");
+    while (1);
+  }
+
+  // WiFiUDP udp;
+
+  // udp.begin(PORT);
+  WiFiClient client;
+  WiFiServer serverTcp(12345); // TCP server on port 12345
+  serverTcp.begin();
+
+  unsigned int temp = uxTaskGetStackHighWaterMark(nullptr);
+  printf("high stack water mark is %u\n", temp);  
+
   while (!root)
   {
     Serial.print("Can't get root folder");
@@ -995,6 +1097,111 @@ void TaskScreenDrawer(void *pvParameters)
 
   for (;;)
   {
+
+#ifdef ANIMATION
+
+    // noisyScreenRandomizer();
+    Serial.flush();
+
+    if (!client || !client.connected())
+    {
+      client = serverTcp.available();
+      Serial.flush();
+    }
+
+   while (client && client.available()) {
+    Serial.flush();
+    uint8_t b = client.read();
+
+    // JPEG start marker: 0xFFD8
+    if (!capturing && b == 0xFF && client.peek() == 0xD8) {
+      Serial.flush();
+      capturing = true;
+      bufferPos = 0;
+      jpegBuffer[bufferPos++] = b;
+      jpegBuffer[bufferPos++] = client.read();  // consume 0xD8
+      continue;
+    }
+
+    
+    if (capturing) {
+      if (bufferPos < BUFFER_SIZE)
+        jpegBuffer[bufferPos++] = b;
+
+      // JPEG end marker: 0xFFD9
+      if (b == 0xD9 && jpegBuffer[bufferPos - 2] == 0xFF) {
+        capturing = false;
+
+        // Decode JPEG
+        jpeg.openRAM(jpegBuffer, bufferPos, drawCallback);
+        jpeg.setPixelType(RGB565_FAST);
+        jpeg.decode(0, 0, 0);
+        jpeg.close();
+        bufferPos = 0;
+      }
+    }   
+
+     //vTaskDelay(pdMS_TO_TICKS(1));
+  }
+/* // Old RAW Way of doing
+    WiFiClient client = serverTcp.available();
+
+    if (client)
+    {
+      Serial.println("Client connected");
+      while (client.connected())
+      {
+        size_t bytesRead = 0;
+        while (bytesRead < FRAME_SIZE)
+        {
+          int len = client.read(frameBuffer + bytesRead, FRAME_SIZE - bytesRead);
+          if (len < 0)
+          {
+            Serial.println("Read error");
+            client.stop();
+            break;
+          }
+          if (len == 0)
+          {
+            // No data available yet, give it a moment
+            delay(1);
+            continue;
+          }
+          bytesRead += len;
+        }
+
+        if (bytesRead == FRAME_SIZE)
+        {
+          // Draw the frame
+          for (int i = 0, pixel = 0; i < FRAME_SIZE; i += 2, pixel++)
+          {
+            uint16_t rgb565 = frameBuffer[i] | (frameBuffer[i + 1] << 8);
+
+            // Extract RGB components (5 bits R, 6 bits G, 5 bits B)
+            uint8_t r = (rgb565 >> 11) & 0x1F;
+            uint8_t g = (rgb565 >> 5) & 0x3F;
+            uint8_t b = rgb565 & 0x1F;
+
+            // No need to convert... dma_display->drawPixel does that
+            r = (r << 3) | (r >> 2);
+            g = (g << 2) | (g >> 4);
+            b = (b << 3) | (b >> 2);
+
+            int x = pixel % WIDTH;
+            int y = pixel / WIDTH;
+
+            //gfx_layer_fg.setPixel(x,y,r,g,b);
+            layer_draw_callback(x,y,r,g,b);
+          }
+
+        }
+      }
+        Serial.println("Client disconnected");
+        client.stop();
+
+    }
+*/
+#elif
     if (config.status.gif.gifFile)
     {
       if (!config.status.gif.gifFile.isDirectory())
@@ -1024,7 +1231,9 @@ void TaskScreenDrawer(void *pvParameters)
       // we are looping...
     }
 
-    vTaskDelay(pdMS_TO_TICKS(1));
+#endif
+
+    // vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 
