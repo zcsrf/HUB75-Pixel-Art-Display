@@ -8,6 +8,7 @@
 #include "device_config.h"
 #include "webpages.h"
 #include "web_server_handles.h"
+#include "panel_draw_helpers.h"
 
 #include <Arduino.h>
 
@@ -355,14 +356,6 @@ void ShowGIF(char *name)
   }
 } /* ShowGIF() */
 
-uint16_t randomRGB565()
-{
-  uint8_t r = rand() % 32; // 5 bits
-  uint8_t g = rand() % 64; // 6 bits
-  uint8_t b = rand() % 32; // 5 bits
-  return (r << 11) | (g << 5) | b;
-}
-
 void noisyScreenRandomizer()
 {
 
@@ -537,10 +530,6 @@ void playGif(File gifFile)
 
 void loop()
 {
-  // uint32_t highWaterMark = uxTaskGetStackHighWaterMark(screenTaskHandle);
-  // Serial.print("High Water Mark: ");
-  // Serial.println(highWaterMark);
-
   // Get time, handle sync, etc
   if (!getLocalTime(&timeinfo, 15))
   {
@@ -610,27 +599,16 @@ void TaskScreenDrawer(void *pvParameters)
 
   dma_display->begin();
 
-  dma_display->fillScreen(dma_display->color565(0, 0, 0));
-  dma_display->setTextSize(1);
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  dma_display->print("ID:");
-  dma_display->print(FIRMWARE_VERSION);
-  dma_display->setCursor(0, 16);
-  dma_display->print("IP:");
-  dma_display->print(WiFi.localIP());
-  dma_display->setCursor(0, 38);
-  dma_display->print("RSSI:");
-  dma_display->println(WiFi.RSSI());
-  dma_display->setCursor(0, 52);
-  dma_display->print("SSID:");
-  dma_display->println(WiFi.SSID());
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  // Draws some useful info at boot (after wifi connection)
+  bootDraw();
+  // Time to allow user to see the information
+  vTaskDelay(pdMS_TO_TICKS(4000));
+
   dma_display->fillScreen(dma_display->color565(0, 0, 0));
   gfx_layer_fg.clear();
   gfx_layer_bg.clear();
-  gif.begin(LITTLE_ENDIAN_PIXELS);
 
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  gif.begin(LITTLE_ENDIAN_PIXELS);
 
   Serial.print("DisplayReady");
 
@@ -641,7 +619,8 @@ void TaskScreenDrawer(void *pvParameters)
   {
     Serial.println("Failed to allocate JPEG buffer");
     while (1)
-      ;
+    {
+    }
   }
 
   WiFiClient client;
@@ -772,6 +751,36 @@ void TaskScreenDrawer(void *pvParameters)
   }
 }
 
+// This tasks handles the info layer stuff
+void TaskScreenInfoLayer(void *pvParameters)
+{
+  for (;;)
+  {
+    if (gfx_layer_mutex != NULL)
+    {
+      if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
+      {
+        if (config.display.clockEnabled && config.status.validTime)
+        {
+          clockDraw();
+        }
+        else if (config.display.scrollTextEnabled)
+        {
+          drawScrollingText();
+        }
+        else
+        {
+          gfx_layer_fg.clear(); // Clear the foreground layer
+        }
+        xSemaphoreGive(gfx_layer_mutex);
+      }
+    }
+    // If we require the Scrol Text to be faster, reduce the below delay
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
+
+// This tasks handles and serves all the web server stuff
 void TaskServer(void *pvParameters)
 {
   server.serveStatic("/", LittleFS, "/index.html");
@@ -813,111 +822,6 @@ void TaskServer(void *pvParameters)
   for (;;)
   {
     server.handleClient();
-    vTaskDelay(pdMS_TO_TICKS(50));
-  }
-}
-
-void TaskScreenInfoLayer(void *pvParameters)
-{
-  int16_t xOne, yOne;
-  uint16_t w, h;
-  unsigned long isAnimationDue;
-
-  for (;;)
-  {
-
-    if (gfx_layer_mutex != NULL)
-    {
-      if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
-      {
-
-        if (config.display.clockEnabled && config.status.validTime)
-        {
-          // Display the time in the format HH:MM (12/24H)
-          gfx_layer_fg.clear();
-          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-          gfx_layer_fg.setTextSize(2);
-          gfx_layer_fg.setCursor(2, 23);
-          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-          gfx_layer_fg.print(config.status.clockTime);
-          gfx_layer_fg.setCursor(4, 24);
-          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-          gfx_layer_fg.print(config.status.clockTime);
-          // gfx_layer_fg.setTextSize(2);
-          gfx_layer_fg.setCursor(2, 25);
-          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-          gfx_layer_fg.setCursor(4, 25);
-          gfx_layer_fg.print(config.status.clockTime);
-          gfx_layer_fg.setTextColor(gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
-          // gfx_layer_fg.setTextSize(2);
-          gfx_layer_fg.setCursor(3, 24);
-          gfx_layer_fg.print(config.status.clockTime); // Clock time text is processed in another thread
-        }
-        else if (config.display.scrollTextEnabled)
-        {
-          // gfx_layer_fg.clear(); // Clear the foreground layer
-          gfx_layer_fg.setTextWrap(false); // Disable text wrapping
-
-          switch (config.status.scrollText.scrollFontSize)
-          {
-          case 1:
-            config.status.scrollText.textYPosition = 27;
-            break;
-          case 3:
-            config.status.scrollText.textYPosition = 20;
-
-            break;
-          case 4:
-            config.status.scrollText.textYPosition = 16;
-            break;
-          case 2:
-          default:
-            config.status.scrollText.textYPosition = 24;
-            break;
-          }
-
-          byte offSet = 25;
-          unsigned long now = millis();
-          if (now > isAnimationDue)
-          {
-
-            gfx_layer_fg.setTextSize(config.status.scrollText.scrollFontSize); // size 2 == 16 pixels high
-
-            isAnimationDue = now + config.status.scrollText.scrollSpeed;
-            config.status.scrollText.textXPosition -= 1;
-
-            // Checking is the very right of the text off screen to the left
-            gfx_layer_fg.getTextBounds(config.status.scrollText.scrollText.c_str(), config.status.scrollText.textXPosition, config.status.scrollText.textYPosition, &xOne, &yOne, &w, &h);
-            if (config.status.scrollText.textXPosition + w <= 0)
-            {
-              config.status.scrollText.textXPosition = gfx_layer_fg.width() + offSet;
-            }
-
-            gfx_layer_fg.setCursor(config.status.scrollText.textXPosition, config.status.scrollText.textYPosition);
-
-            // Clear the area of text to be drawn to
-            gfx_layer_fg.drawRect(0, config.status.scrollText.textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
-            gfx_layer_fg.fillRect(0, config.status.scrollText.textYPosition - 12, gfx_layer_fg.width(), 42, gfx_layer_fg.color565(0, 0, 0));
-
-            uint8_t w = 0;
-            for (w = 0; w < strlen(config.status.scrollText.scrollText.c_str()); w++)
-            {
-              gfx_layer_fg.setTextColor(gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
-              gfx_layer_fg.print(config.status.scrollText.scrollText.c_str()[w]);
-              // Serial.println(textYPosition);
-            }
-          }
-        }
-        else
-        {
-          gfx_layer_fg.clear(); // Clear the foreground layer
-        }
-
-        xSemaphoreGive(gfx_layer_mutex);
-      }
-    }
-
-    // If we require the Scrol Text to be faster, reduce the below delay
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
