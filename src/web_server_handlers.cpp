@@ -404,9 +404,8 @@ void handleFileRequest()
         else if (fileAction == "play")
         {
             config.status.gif.requestedGifPath = fileName;
-            config.status.gif.gifFile = LittleFS.open(fileName, "r");
             logmessage += " opening";
-            server.send(200, "text/plain", "Opened GIF: " + fileName);
+            server.send(200, "text/plain", "GIF will play on end: " + fileName);
         }
         else if (fileAction == "show")
         {

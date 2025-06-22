@@ -45,6 +45,9 @@ SemaphoreHandle_t gfx_layer_mutex = NULL;
 TaskHandle_t screenTaskHandle;
 TaskHandle_t serverTaskHandle;
 
+WiFiClient client;
+WiFiServer serverTcp(TCP_PORT); // TCP server on port 12345
+
 // Tasks Declaration
 void TaskScreenDrawer(void *pvParameters);
 void TaskServer(void *pvParameters);
@@ -147,214 +150,6 @@ String scanAndConnectToStrongestNetwork()
   WiFi.begin(config.wifi.ssid, config.wifi.password, 0, WiFi.BSSID(i_strongest));
   return (WiFi.BSSIDstr(i_strongest));
 }
-
-void layer_draw_callback(int16_t x, int16_t y, uint8_t r_data, uint8_t g_data, uint8_t b_data)
-{
-  dma_display->drawPixel(x, y, dma_display->color565(r_data, g_data, b_data));
-}
-
-void layer_draw_callback_alt(int16_t x, int16_t y, uint16_t color)
-{
-  dma_display->drawPixel(x, y, color);
-}
-
-int drawCallback(JPEGDRAW *pDraw)
-{
-
-  uint16_t *p = (uint16_t *)pDraw->pPixels;
-  for (int y = 0; y < pDraw->iHeight; y++)
-  {
-    for (int x = 0; x < pDraw->iWidthUsed; x++)
-    {
-      int index = y * pDraw->iWidth + x; // line-by-line
-      uint16_t color = p[index];
-      layer_draw_callback_alt(pDraw->x + x, pDraw->y + y, color);
-    }
-  }
-  return 1; //
-}
-
-void GIFDraw(GIFDRAW *pDraw)
-{
-  uint8_t *s;
-  uint16_t *d, *usPalette, usTemp[320];
-  int x, y, iWidth;
-
-  iWidth = pDraw->iWidth;
-  if (iWidth > PANEL_RES_X)
-    iWidth = PANEL_RES_X;
-
-  usPalette = pDraw->pPalette;
-  y = pDraw->iY + pDraw->y; // current line
-
-  s = pDraw->pPixels;
-  if (pDraw->ucDisposalMethod == 2) // restore to background color
-  {
-    for (x = 0; x < iWidth; x++)
-    {
-      if (s[x] == pDraw->ucTransparent)
-        s[x] = pDraw->ucBackground;
-    }
-    pDraw->ucHasTransparency = 0;
-  }
-
-  if (config.display.gifEnabled) // Check if GIF playback is enabled
-  {
-    if (pDraw->ucHasTransparency) // if transparency used
-    {
-      uint8_t *pEnd, c, ucTransparent = pDraw->ucTransparent;
-      int x, iCount;
-      pEnd = s + pDraw->iWidth;
-      x = 0;
-      iCount = 0; // count non-transparent pixels
-      while (x < pDraw->iWidth)
-      {
-        c = ucTransparent - 1;
-        d = usTemp;
-        while (c != ucTransparent && s < pEnd)
-        {
-          c = *s++;
-          if (c == ucTransparent) // done, stop
-          {
-            s--; // back up to treat it like transparent
-          }
-          else // opaque
-          {
-            *d++ = usPalette[c];
-            iCount++;
-          }
-        } // while looking for opaque pixels
-        if (iCount) // any opaque pixels?
-        {
-          for (int xOffset = 0; xOffset < iCount; xOffset++)
-          {
-            gfx_layer_bg.drawPixel(x + xOffset, y, usTemp[xOffset]); // 565 Color Format
-          }
-          x += iCount;
-          iCount = 0;
-        }
-        // no, look for a run of transparent pixels
-        c = ucTransparent;
-        while (c == ucTransparent && s < pEnd)
-        {
-          c = *s++;
-          if (c == ucTransparent)
-            iCount++;
-          else
-            s--;
-        }
-        if (iCount)
-        {
-          x += iCount; // skip these
-          iCount = 0;
-        }
-      }
-    }
-    else // does not have transparency
-    {
-      s = pDraw->pPixels;
-      // Translate the 8-bit pixels through the RGB565 palette (already byte reversed)
-      for (x = 0; x < pDraw->iWidth; x++)
-      {
-        gfx_layer_bg.drawPixel(x, y, usPalette[*s++]); // color 565
-      }
-    }
-  }
-  else
-  {
-    gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
-  }
-} /* GIFDraw() */
-
-void *GIFOpenFile(const char *fname, int32_t *pSize)
-{
-  Serial.print("Playing gif: ");
-  Serial.println(fname);
-  config.status.gif.currentFile = FILESYSTEM.open(fname);
-  if (config.status.gif.currentFile)
-  {
-    *pSize = config.status.gif.currentFile.size();
-    return (void *)&config.status.gif.currentFile;
-  }
-  return NULL;
-} /* GIFOpenFile() */
-
-void GIFCloseFile(void *pHandle)
-{
-  File *f = static_cast<File *>(pHandle);
-  if (f != NULL)
-    f->close();
-} /* GIFCloseFile() */
-
-int32_t GIFReadFile(GIFFILE *pFile, uint8_t *pBuf, int32_t iLen)
-{
-  int32_t iBytesRead = iLen;
-
-  File *f = static_cast<File *>(pFile->fHandle);
-  // Note: If you read a file all the way to the last byte, seek() stops working
-  if ((pFile->iSize - pFile->iPos) < iLen)
-    iBytesRead = pFile->iSize - pFile->iPos - 1; // <-- ugly work-around
-  if (iBytesRead <= 0)
-    return 0;
-  iBytesRead = (int32_t)f->read(pBuf, iBytesRead);
-  pFile->iPos = f->position();
-  return iBytesRead;
-} /* GIFReadFile() */
-
-int32_t GIFSeekFile(GIFFILE *pFile, int32_t iPosition)
-{
-  int i = micros();
-  File *f = static_cast<File *>(pFile->fHandle);
-  f->seek(iPosition);
-  pFile->iPos = (int32_t)f->position();
-  i = micros() - i;
-  //  Serial.printf("Seek time = %d us\n", i);
-  return pFile->iPos;
-} /* GIFSeekFile() */
-
-void ShowGIF(char *name)
-{
-  int x_offset, y_offset; // can be local
-
-  if (gif.open(name, GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw))
-  {
-    x_offset = (PANEL_RES_X - gif.getCanvasWidth()) / 2;
-    if (x_offset < 0)
-      x_offset = 0;
-    y_offset = (PANEL_RES_Y - gif.getCanvasHeight()) / 2;
-    if (y_offset < 0)
-      y_offset = 0;
-
-    // Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
-    // Serial.flush();
-
-    while (gif.playFrame(true, NULL))
-    {
-      if (gfx_layer_mutex != NULL)
-      {
-        if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
-        {
-          // We don't need to dim...
-          // gfx_layer_bg.dim(150);
-          // gfx_layer_fg.dim(255);
-
-          // make a compositor combine that allows somewhat of a black color mix on the bg
-          // gfx_compositor.Blend(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
-          // gfx_compositor.Siloette(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
-          gfx_compositor.Stack(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
-
-          /*if ((millis() - start_tick) > 50000)
-          { // we'll get bored after about 50 seconds of the same looping gif
-            // break; // Will change to the next gif in the list after the set time.
-          }
-          */
-          xSemaphoreGive(gfx_layer_mutex); // After accessing the shared resource give the mutex and allow other processes to access it
-        }
-      }
-    }
-    gif.close();
-  }
-} /* ShowGIF() */
 
 void noisyScreenRandomizer()
 {
@@ -505,27 +300,8 @@ void setup()
       NULL);
 }
 
-File findGifByPath(File root, const String &targetPath)
-{
-  File gifFile;
-  while ((gifFile = root.openNextFile()))
-  {
-    if (String(gifFile.path()) == targetPath)
-    {
-      return gifFile;
-    }
-    gifFile.close();
-    vTaskDelay(pdMS_TO_TICKS(1));
-  }
-  return File(); // Return empty file if not found
-}
-
 void playGif(File gifFile)
 {
-  memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
-  strcpy(config.status.gif.filePath, gifFile.path());
-  config.status.gif.currentGifPath = String(config.status.gif.filePath);
-  ShowGIF(config.status.gif.filePath);
 }
 
 void loop()
@@ -623,8 +399,6 @@ void TaskScreenDrawer(void *pvParameters)
     }
   }
 
-  WiFiClient client;
-  WiFiServer serverTcp(TCP_PORT); // TCP server on port 12345
   serverTcp.begin();
 
   unsigned int temp = uxTaskGetStackHighWaterMark(nullptr);
@@ -674,10 +448,7 @@ void TaskScreenDrawer(void *pvParameters)
   {
     // noisyScreenRandomizer();
 
-    if (!client || !client.connected())
-    {
-      client = serverTcp.available();
-    }
+    checkForTcpClient();
 
     if (!client || !client.available())
     {
@@ -685,7 +456,10 @@ void TaskScreenDrawer(void *pvParameters)
       {
         if (!config.status.gif.gifFile.isDirectory())
         {
-          playGif(config.status.gif.gifFile);
+          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
+          strcpy(config.status.gif.filePath, config.status.gif.gifFile.path());
+          config.status.gif.currentGifPath = String(config.status.gif.filePath);
+          showGIF(config.status.gif.filePath);
         }
       }
       else
@@ -737,7 +511,7 @@ void TaskScreenDrawer(void *pvParameters)
             capturing = false;
 
             // Decode JPEG
-            jpeg.openRAM(jpegBuffer, bufferPos, drawCallback);
+            jpeg.openRAM(jpegBuffer, bufferPos, jpegDrawCallback);
             jpeg.setMaxOutputSize(1);
             jpeg.decode(0, 0, 0);
             jpeg.close();
