@@ -14,15 +14,16 @@ This is based on the work of [mzashh - HUB75-Pixel-Art-Display](https://github.c
   - Connects to the best AP
   - On startup, the panel connects to the Wi-Fi network and displays the firmware version, IP address, RSSI, and Wi-Fi SSID for some time (to be tunned later on)
 - **GIF Playback**: Plays GIF files stored in the ESP32's SPI Flash.
+- **JPEG Playback**: Plays JPEG stored in the ESP32's SPI Flash
 - **MJPEG Streaming**: Allows streaming video to the ESP32 using ffmpeg, mjpeg and TCP.
 - **NTP Clock**: Displays the current time (configurable GMT and DST offsets in the firmware).
 - **WebUI**:
-  - Upload, delete, download, and play GIF files.
+  - Upload, delete, download, and play Image files.
   - Control brightness via a slider.
   - Change text and clock colors.
   - Adjust text scroll speed and size.
-  - Enable or disable GIF playback, clock, or scrolling text individually.
-  - Toggle GIF looping to either loop a single GIF or play all stored GIFs sequentially.
+  - Enable or disable Image playback, clock, or scrolling text individually.
+  - Toggle Image looping to either loop a single Image or play all stored Image sequentially.
   - Replace the clock with custom scrolling text.
   - Remote rebooting of the ESP32. - To be implemented
   - Modern UI based on Bootstrap
@@ -35,7 +36,6 @@ This is based on the work of [mzashh - HUB75-Pixel-Art-Display](https://github.c
 
 > Some of these might not be possible together (memory / flash constrains?)
 
-- **JPEG Playback**: Plays JPEG stored in the ESP32's SPI Flash
 - **MJPEG Playback**:  Plays MJPEG stored in the ESP32's SPI Flash
 - **MJPEG Streaming**: Simple Overlay text over streaming MJPEG - Seems to be tricky (cpu constrain?)
 - **Animations**:
