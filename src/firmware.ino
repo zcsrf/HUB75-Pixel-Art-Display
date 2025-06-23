@@ -79,12 +79,13 @@ struct Config bootDefaults = {
     .display = {
         .clockEnabled = false,      // we don't want the clock showing
         .scrollTextEnabled = false, // we also don't want the text showing
-        .gifEnabled = true,         // We want to see gifs
-        .loopGifEnabled = true,     // We want our gifs to be on loop
+        .imagesEnabled = true,      // We want to see images
+        .loopImagesEnabled = true,  // We want our images to be on loop
         .displayBrightness = 100,   // That should be an okay value
+        .imageTimeoutSeconds = 30,  // How long to display a image when not looping
     },
     .filesConfig = {
-        .filesDir = "/",       // play all Files in this directory
+        .filesDir = "/",      // play all Files in this directory
         .maxFilesPerPage = 4, // Change this value to set the maximum number of Files per page (keep this at 4)
     },
     .status = {
@@ -205,8 +206,8 @@ void setup()
   // But this way is readable what we want to "get"
   config.display.clockEnabled = preferences.getBool("clock", bootDefaults.display.clockEnabled);
   config.display.scrollTextEnabled = preferences.getBool("scrollText", bootDefaults.display.scrollTextEnabled);
-  config.display.gifEnabled = preferences.getBool("gifState", bootDefaults.display.gifEnabled);
-  config.display.loopGifEnabled = preferences.getBool("loopGif", bootDefaults.display.loopGifEnabled);
+  config.display.imagesEnabled = preferences.getBool("gifState", bootDefaults.display.imagesEnabled);
+  config.display.loopImagesEnabled = preferences.getBool("loopGif", bootDefaults.display.loopImagesEnabled);
   config.display.displayBrightness = preferences.getUInt("displayBrig", bootDefaults.display.displayBrightness);
 
   Serial.begin(115200);
@@ -447,34 +448,41 @@ void TaskScreenDrawer(void *pvParameters)
 
     if (!client || !client.available())
     {
-      if (config.status.fileStatus.displayFile)
+      if (config.display.imagesEnabled)
       {
-        if (!config.status.fileStatus.displayFile.isDirectory())
+        if (config.status.fileStatus.displayFile)
         {
-          config.status.fileStatus.currentFilePath = String(config.status.fileStatus.displayFile.path());
-          showLocalFile(config.status.fileStatus.displayFile);
+          if (!config.status.fileStatus.displayFile.isDirectory())
+          {
+            config.status.fileStatus.currentFilePath = String(config.status.fileStatus.displayFile.path());
+            showLocalFile(config.status.fileStatus.displayFile);
+          }
         }
-      }
-      else
-      {
-        // No gif file :'(
-      }
-
-      if (!config.display.loopGifEnabled)
-      {
-        // Go get the next file
-        config.status.fileStatus.displayFile = root.openNextFile();
-
-        if (!config.status.fileStatus.displayFile)
+        else
         {
-          root.close();
-          root = FILESYSTEM.open(config.filesConfig.filesDir);
+          // No gif file :'(
+        }
+
+        if (!config.display.loopImagesEnabled)
+        {
+          // Go get the next file
           config.status.fileStatus.displayFile = root.openNextFile();
+
+          if (!config.status.fileStatus.displayFile)
+          {
+            root.close();
+            root = FILESYSTEM.open(config.filesConfig.filesDir);
+            config.status.fileStatus.displayFile = root.openNextFile();
+          }
         }
-      }
-      else
-      {
-        // we are looping...
+        else
+        {
+          // we are looping...
+        }
+      } else {
+        gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
+        stackLayers();
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
     }
     else
@@ -512,7 +520,7 @@ void TaskScreenDrawer(void *pvParameters)
           }
         }
         // Do not... do not add any delay
-         //vTaskDelay(pdMS_TO_TICKS(10));
+        // vTaskDelay(pdMS_TO_TICKS(10));
       }
     }
   }

@@ -78,7 +78,7 @@ void clockDraw()
     */
 
     gfx_layer_fg.clear();
-    
+
     uint16_t shadowColor = gfx_layer_fg.color565(10, 10, 10); // Black
 
     // Draw shadow in 4 directions around the text
@@ -230,71 +230,64 @@ void gifDraw(GIFDRAW *pDraw)
         pDraw->ucHasTransparency = 0;
     }
 
-    if (config.display.gifEnabled) // Check if GIF playback is enabled
+    if (pDraw->ucHasTransparency) // if transparency used
     {
-        if (pDraw->ucHasTransparency) // if transparency used
+        uint8_t *pEnd, c, ucTransparent = pDraw->ucTransparent;
+        int x, iCount;
+        pEnd = s + pDraw->iWidth;
+        x = 0;
+        iCount = 0; // count non-transparent pixels
+        while (x < pDraw->iWidth)
         {
-            uint8_t *pEnd, c, ucTransparent = pDraw->ucTransparent;
-            int x, iCount;
-            pEnd = s + pDraw->iWidth;
-            x = 0;
-            iCount = 0; // count non-transparent pixels
-            while (x < pDraw->iWidth)
+            c = ucTransparent - 1;
+            d = usTemp;
+            while (c != ucTransparent && s < pEnd)
             {
-                c = ucTransparent - 1;
-                d = usTemp;
-                while (c != ucTransparent && s < pEnd)
+                c = *s++;
+                if (c == ucTransparent) // done, stop
                 {
-                    c = *s++;
-                    if (c == ucTransparent) // done, stop
-                    {
-                        s--; // back up to treat it like transparent
-                    }
-                    else // opaque
-                    {
-                        *d++ = usPalette[c];
-                        iCount++;
-                    }
-                } // while looking for opaque pixels
-                if (iCount) // any opaque pixels?
-                {
-                    for (int xOffset = 0; xOffset < iCount; xOffset++)
-                    {
-                        gfx_layer_bg.drawPixel(x + xOffset, y, usTemp[xOffset]); // 565 Color Format
-                    }
-                    x += iCount;
-                    iCount = 0;
+                    s--; // back up to treat it like transparent
                 }
-                // no, look for a run of transparent pixels
-                c = ucTransparent;
-                while (c == ucTransparent && s < pEnd)
+                else // opaque
                 {
-                    c = *s++;
-                    if (c == ucTransparent)
-                        iCount++;
-                    else
-                        s--;
+                    *d++ = usPalette[c];
+                    iCount++;
                 }
-                if (iCount)
+            } // while looking for opaque pixels
+            if (iCount) // any opaque pixels?
+            {
+                for (int xOffset = 0; xOffset < iCount; xOffset++)
                 {
-                    x += iCount; // skip these
-                    iCount = 0;
+                    gfx_layer_bg.drawPixel(x + xOffset, y, usTemp[xOffset]); // 565 Color Format
                 }
+                x += iCount;
+                iCount = 0;
             }
-        }
-        else // does not have transparency
-        {
-            s = pDraw->pPixels;
-            // Translate the 8-bit pixels through the RGB565 palette (already byte reversed)
-            for (x = 0; x < pDraw->iWidth; x++)
+            // no, look for a run of transparent pixels
+            c = ucTransparent;
+            while (c == ucTransparent && s < pEnd)
             {
-                gfx_layer_bg.drawPixel(x, y, usPalette[*s++]); // color 565
+                c = *s++;
+                if (c == ucTransparent)
+                    iCount++;
+                else
+                    s--;
+            }
+            if (iCount)
+            {
+                x += iCount; // skip these
+                iCount = 0;
             }
         }
     }
-    else
+    else // does not have transparency
     {
-        gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
+        s = pDraw->pPixels;
+        // Translate the 8-bit pixels through the RGB565 palette (already byte reversed)
+        for (x = 0; x < pDraw->iWidth; x++)
+        {
+            gfx_layer_bg.drawPixel(x, y, usPalette[*s++]); // color 565
+        }
     }
 }
 
@@ -309,22 +302,14 @@ void checkForTcpClient()
 
 void showLocalFile(File file)
 {
-    int x_offset, y_offset; // can be local
-                            //|| name.endsWith(".jpg") || name.endsWith(".mjpeg")
+    // Refresh our "timeout" counter
+    unsigned long displayTime = millis();
+
     if (String(file.path()).endsWith(".gif"))
     {
-
         if (gif.open(file.path(), gifOpenFile, gifCloseFile, gifReadFile, gifSeekFile, gifDraw))
         {
-            x_offset = (PANEL_RES_X - gif.getCanvasWidth()) / 2;
-            if (x_offset < 0)
-                x_offset = 0;
-            y_offset = (PANEL_RES_Y - gif.getCanvasHeight()) / 2;
-            if (y_offset < 0)
-                y_offset = 0;
-
-            // Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
-            // Serial.flush();
+            // Keep looping on the gif... do logic to exit the loop, reset or close gif if needed
             while (1)
             {
                 // We need to break the GIF playback instantly on certain conditions (tcp packets...)
@@ -332,6 +317,12 @@ void showLocalFile(File file)
                 {
                     checkForTcpClient();
                     stackLayers();
+
+                    if (!config.display.imagesEnabled) // Check if GIF playback is enabled
+                    {
+                        gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
+                        return;
+                    }
                 }
 
                 // Wow...we might have a client sending tcp packets... lets skip the gif stuff and go back to screenDraw loop
@@ -343,7 +334,7 @@ void showLocalFile(File file)
 
                 // Don't close if we are looping.... don't waste time, open and closing and ..
                 // Logic is cheaper...
-                if (config.display.loopGifEnabled)
+                if (config.display.loopImagesEnabled)
                 {
                     // You are in loop and you didn't request another file
                     if (config.status.fileStatus.requestedFilePath.isEmpty())
@@ -356,15 +347,18 @@ void showLocalFile(File file)
                         gif.close();
                         File root = FILESYSTEM.open(config.filesConfig.filesDir);
                         config.status.fileStatus.displayFile = findImageByPath(root, config.status.fileStatus.requestedFilePath);
-                        config.status.fileStatus.currentFilePath = config.status.fileStatus.requestedFilePath;
-                        config.status.fileStatus.requestedFilePath = "";
-                        break;
+                        return;
                     }
                 }
+                // We are not looping the image... just wait till timeout to go to next one.
                 else
                 {
-                    gif.close();
-                    break;
+                    // If image timeout is reached we can close and handle the next file
+                    if (((millis() - displayTime) > config.display.imageTimeoutSeconds * 1000))
+                    {
+                        gif.close();
+                        return;
+                    }
                 }
             }
         }
@@ -415,11 +409,12 @@ void showLocalFile(File file)
 
         free(jpgData);
 
-        while (!(client && client.available() && config.display.loopGifEnabled))
+        do
         {
             checkForTcpClient();
 
             stackLayers();
+
             // Wow...we might have a client sending tcp packets... lets skip the gif stuff and go back to screenDraw loop
             if (client && client.available())
             {
@@ -428,19 +423,36 @@ void showLocalFile(File file)
 
             // Don't close if we are looping.... don't waste time, open and closing and ..
             // Logic is cheaper...
-            if (config.display.loopGifEnabled)
+            if (!config.status.fileStatus.requestedFilePath.isEmpty())
             {
-                // You are in loop and you didn't request another file
-                if (!config.status.fileStatus.requestedFilePath.isEmpty())
-                {
-                    File root = FILESYSTEM.open(config.filesConfig.filesDir);
-                    config.status.fileStatus.displayFile = findImageByPath(root, config.status.fileStatus.requestedFilePath);
-                    return;
-                }
+                File root = FILESYSTEM.open(config.filesConfig.filesDir);
+                config.status.fileStatus.displayFile = findImageByPath(root, config.status.fileStatus.requestedFilePath);
+                return;
+            }
+
+            if (!config.display.loopImagesEnabled && ((millis() - displayTime) > config.display.imageTimeoutSeconds * 1000))
+            {
+                Serial.println("Loop is disabled");
+                return;
+            }
+
+            // JPG is displayed for enouth time
+            /*if ((millis() - displayTime ) > 5000)
+            {
+                Serial.println("JPEG Timeout");
+                return;
+            }*/
+
+            if (!config.display.imagesEnabled) // Check if GIF playback is enabled
+            {
+                Serial.println("Image is not enable");
+                gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
+                stackLayers();
+                return;
             }
 
             vTaskDelay(pdMS_TO_TICKS(10));
-        }
+        } while (!(client && client.available()));
     }
     else
     {
@@ -474,7 +486,7 @@ int jpegDrawCallback(JPEGDRAW *pDraw)
         {
             int index = y * pDraw->iWidth + x; // line-by-line
             uint16_t color = p[index];
-            gfx_layer_bg.drawPixel(pDraw->x + x, pDraw->y + y, color); // color 565
+            gfx_layer_bg.drawPixel(pDraw->x + x, pDraw->y + y, color); // color 565s
         }
     }
     return 1;

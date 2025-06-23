@@ -60,9 +60,10 @@ struct DisplayConfig
 {
     bool clockEnabled;         // should be saved to preferences
     bool scrollTextEnabled;    // should be saved to preferences
-    bool gifEnabled;           // should be saved to preferences
-    bool loopGifEnabled;       // should be saved to preferences
+    bool imagesEnabled;           // should be saved to preferences
+    bool loopImagesEnabled;       // should be saved to preferences
     uint8_t displayBrightness; // should be saved to preferences
+    uint16_t imageTimeoutSeconds;     // TODO: Not yet saved, not yet on Web UI
 };
 
 struct DeviceStatus

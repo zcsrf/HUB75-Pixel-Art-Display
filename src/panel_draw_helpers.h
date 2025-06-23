@@ -25,6 +25,7 @@ extern WiFiServer serverTcp;
 
 File findImageByPath(File root, const String &targetPath);
 uint16_t randomRGB565();
+void stackLayers();
 void bootDraw();
 void clockDraw();
 void drawScrollingText();

@@ -107,9 +107,9 @@ void handleToggleGif()
     {
         if (server.argName(0) == "state")
         {
-            config.display.gifEnabled = (server.arg(0) == "on");
+            config.display.imagesEnabled = (server.arg(0) == "on");
             server.send(200);
-            preferences.putBool("gifState", config.display.gifEnabled);
+            preferences.putBool("gifState", config.display.imagesEnabled);
         }
         else
         {
@@ -149,9 +149,9 @@ void handleToggleLoopGif()
     {
         if (server.argName(0) == "state")
         {
-            config.display.loopGifEnabled = (server.arg(0) == "on");
+            config.display.loopImagesEnabled = (server.arg(0) == "on");
             server.send(200);
-            preferences.putBool("loopGif", config.display.loopGifEnabled);
+            preferences.putBool("loopGif", config.display.loopImagesEnabled);
             Serial.println("Changing Loop Gif State");
         }
         else
@@ -316,7 +316,7 @@ void handleVersionFlash()
     message += "\"";
 
     message += ",\"gs\":\"";
-    message += String(config.display.gifEnabled);
+    message += String(config.display.imagesEnabled);
     message += "\"";
 
     message += ",\"cs\":\"";
@@ -324,7 +324,7 @@ void handleVersionFlash()
     message += "\"";
 
     message += ",\"ls\":\"";
-    message += String(config.display.loopGifEnabled);
+    message += String(config.display.loopImagesEnabled);
     message += "\"";
 
     message += ",\"ts\":\"";
@@ -367,9 +367,9 @@ void handleVersionFlash()
 
 void handleFileRequest()
 {
-    bool gifEnabledTemp = config.display.gifEnabled;
+    bool gifEnabledTemp = config.display.imagesEnabled;
 
-    config.display.gifEnabled = false;
+    config.display.imagesEnabled = false;
 
     if (server.hasArg("name") && server.hasArg("action"))
     {
@@ -428,7 +428,7 @@ void handleFileRequest()
         server.send(400, "text/plain", "ERROR: name and action params required");
     }
 
-    config.display.gifEnabled = gifEnabledTemp;
+    config.display.imagesEnabled = gifEnabledTemp;
 }
 
 void handleSetColor()
