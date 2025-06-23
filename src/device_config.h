@@ -29,19 +29,18 @@ struct ScrollTextStatus
     int textYPosition;
 };
 
-struct GifConfig
+struct FilesConfig
 {
-    String gifDir;
-    int maxGIFsPerPage;
+    String filesDir;
+    int maxFilesPerPage;
 };
 
-struct GifStatus
+struct FileStatus
 {
-    String currentGifPath;
-    String requestedGifPath;
-    char filePath[256];
+    String currentFilePath;
+    String requestedFilePath;
     File currentFile;
-    File gifFile;
+    File displayFile;
 };
 
 struct WifiConfig
@@ -73,7 +72,7 @@ struct DeviceStatus
     bool tickTurn;
     Color textColor;
     ScrollTextStatus scrollText;
-    GifStatus gif;
+    FileStatus fileStatus;
     File fsUploadFile;
 };
 
@@ -82,7 +81,7 @@ struct Config
     struct WifiConfig wifi;
     struct TimeConfig time;
     struct DisplayConfig display;
-    struct GifConfig gifConfig;
+    struct FilesConfig filesConfig;
     struct DeviceStatus status;
 };
 

@@ -2,7 +2,7 @@
 
 #include "panel_draw_helpers.h"
 
-File findGifByPath(File root, const String &targetPath)
+File findImageByPath(File root, const String &targetPath)
 {
     File gifFile;
     while ((gifFile = root.openNextFile()))
@@ -23,6 +23,20 @@ uint16_t randomRGB565()
     uint8_t g = rand() % 64; // 6 bits
     uint8_t b = rand() % 32; // 5 bits
     return (r << 11) | (g << 5) | b;
+}
+
+void stackLayers()
+{
+    if (gfx_layer_mutex != NULL)
+    {
+        if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            // gfx_layer_bg.dim(150);
+            // gfx_layer_fg.dim(255);
+            gfx_compositor.Stack(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
+            xSemaphoreGive(gfx_layer_mutex);                  // After accessing the shared resource give the mutex and allow other processes to access it
+        }
+    }
 }
 
 // Draws some useful info at boot (after wifi connection)
@@ -47,22 +61,41 @@ void bootDraw()
 void clockDraw()
 {
     // Display the time in the format HH:MM (12/24H)
-    gfx_layer_fg.clear();
+    /*
     gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
     gfx_layer_fg.setTextSize(2);
-    gfx_layer_fg.setCursor(2, 23);
+    gfx_layer_fg.setCursor(2, 24);
     gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
     gfx_layer_fg.print(config.status.clockTime);
     gfx_layer_fg.setCursor(4, 24);
     gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
     gfx_layer_fg.print(config.status.clockTime);
     // gfx_layer_fg.setTextSize(2);
-    gfx_layer_fg.setCursor(2, 25);
+    gfx_layer_fg.setCursor(3, 22);
     gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-    gfx_layer_fg.setCursor(4, 25);
+    gfx_layer_fg.setCursor(3, 25);
     gfx_layer_fg.print(config.status.clockTime);
+    */
+
+    gfx_layer_fg.clear();
+    
+    uint16_t shadowColor = gfx_layer_fg.color565(10, 10, 10); // Black
+
+    // Draw shadow in 4 directions around the text
+    for (int dx = -1; dx <= 1; dx++)
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            if (dx == 0 && dy == 0)
+                continue; // Skip center
+            gfx_layer_fg.setCursor(3 + dx, 24 + dy);
+            gfx_layer_fg.setTextColor(shadowColor);
+            gfx_layer_fg.print(config.status.clockTime);
+        }
+    }
+
     gfx_layer_fg.setTextColor(gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
-    // gfx_layer_fg.setTextSize(2);
+    gfx_layer_fg.setTextSize(2);
     gfx_layer_fg.setCursor(3, 24);
     gfx_layer_fg.print(config.status.clockTime); // Clock time text is processed in another thread
 }
@@ -131,11 +164,11 @@ void *gifOpenFile(const char *fname, int32_t *pSize)
 {
     Serial.print("Playing gif: ");
     Serial.println(fname);
-    config.status.gif.currentFile = FILESYSTEM.open(fname);
-    if (config.status.gif.currentFile)
+    config.status.fileStatus.currentFile = FILESYSTEM.open(fname);
+    if (config.status.fileStatus.currentFile)
     {
-        *pSize = config.status.gif.currentFile.size();
-        return (void *)&config.status.gif.currentFile;
+        *pSize = config.status.fileStatus.currentFile.size();
+        return (void *)&config.status.fileStatus.currentFile;
     }
     return NULL;
 } /* GIFOpenFile() */
@@ -274,43 +307,122 @@ void checkForTcpClient()
     }
 }
 
-void showGIF(char *name)
+void showLocalFile(File file)
 {
     int x_offset, y_offset; // can be local
-
-    if (gif.open(name, gifOpenFile, gifCloseFile, gifReadFile, gifSeekFile, gifDraw))
+                            //|| name.endsWith(".jpg") || name.endsWith(".mjpeg")
+    if (String(file.path()).endsWith(".gif"))
     {
-        x_offset = (PANEL_RES_X - gif.getCanvasWidth()) / 2;
-        if (x_offset < 0)
-            x_offset = 0;
-        y_offset = (PANEL_RES_Y - gif.getCanvasHeight()) / 2;
-        if (y_offset < 0)
-            y_offset = 0;
 
-        // Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
-        // Serial.flush();
-        while (1)
+        if (gif.open(file.path(), gifOpenFile, gifCloseFile, gifReadFile, gifSeekFile, gifDraw))
         {
-            //We need to break the GIF playback instantly on certain conditions (tcp packets...)
-            while (gif.playFrame(true, NULL) && (!client || !client.connected()))
+            x_offset = (PANEL_RES_X - gif.getCanvasWidth()) / 2;
+            if (x_offset < 0)
+                x_offset = 0;
+            y_offset = (PANEL_RES_Y - gif.getCanvasHeight()) / 2;
+            if (y_offset < 0)
+                y_offset = 0;
+
+            // Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
+            // Serial.flush();
+            while (1)
             {
-                checkForTcpClient();
-                if (gfx_layer_mutex != NULL)
+                // We need to break the GIF playback instantly on certain conditions (tcp packets...)
+                while (gif.playFrame(true, NULL) && (!client || !client.connected()))
                 {
-                    if (xSemaphoreTake(gfx_layer_mutex, portMAX_DELAY) == pdTRUE)
+                    checkForTcpClient();
+                    stackLayers();
+                }
+
+                // Wow...we might have a client sending tcp packets... lets skip the gif stuff and go back to screenDraw loop
+                if (client && client.available())
+                {
+                    gif.close();
+                    return;
+                }
+
+                // Don't close if we are looping.... don't waste time, open and closing and ..
+                // Logic is cheaper...
+                if (config.display.loopGifEnabled)
+                {
+                    // You are in loop and you didn't request another file
+                    if (config.status.fileStatus.requestedFilePath.isEmpty())
                     {
-                        // gfx_layer_bg.dim(150);
-                        // gfx_layer_fg.dim(255);
-                        gfx_compositor.Stack(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
-                        xSemaphoreGive(gfx_layer_mutex);                  // After accessing the shared resource give the mutex and allow other processes to access it
+                        gif.reset();
+                    }
+                    // You are in loop but did request another file
+                    else
+                    {
+                        gif.close();
+                        File root = FILESYSTEM.open(config.filesConfig.filesDir);
+                        config.status.fileStatus.displayFile = findImageByPath(root, config.status.fileStatus.requestedFilePath);
+                        config.status.fileStatus.currentFilePath = config.status.fileStatus.requestedFilePath;
+                        config.status.fileStatus.requestedFilePath = "";
+                        break;
                     }
                 }
+                else
+                {
+                    gif.close();
+                    break;
+                }
             }
+        }
+    }
+    else if (String(file.path()).endsWith(".jpeg") || String(file.path()).endsWith(".jpg"))
+    {
 
+        Serial.print("Loaded a JPG");
+
+        config.status.fileStatus.currentFile = FILESYSTEM.open(String(file.path()));
+
+        if (!config.status.fileStatus.currentFile || !config.status.fileStatus.currentFile.available())
+        {
+            Serial.println("File open failed or empty!");
+            return;
+        }
+
+        int len = config.status.fileStatus.currentFile.size();
+        if (len <= 0)
+        {
+            Serial.println("File size invalid or zero");
+            return;
+        }
+
+        uint8_t *jpgData = (uint8_t *)malloc(len);
+        if (!jpgData)
+        {
+            Serial.println("Malloc failed!");
+            return;
+        }
+
+        int bytesRead = config.status.fileStatus.currentFile.read(jpgData, len);
+        config.status.fileStatus.currentFile.close();
+
+        if (bytesRead != len)
+        {
+            Serial.println("Read incomplete or corrupted");
+            free(jpgData);
+            return;
+        }
+
+        if (jpeg.openRAM(jpgData, len, jpegDrawCallback))
+        {
+            jpeg.setPixelType(RGB565_LITTLE_ENDIAN); // bb_spi_lcd uses big-endian RGB565 pixels
+            jpeg.decode(0, 0, 0);                    // decode at (0,0), scale=0 (1:1)
+            jpeg.close();
+        }
+
+        free(jpgData);
+
+        while (!(client && client.available() && config.display.loopGifEnabled))
+        {
+            checkForTcpClient();
+
+            stackLayers();
             // Wow...we might have a client sending tcp packets... lets skip the gif stuff and go back to screenDraw loop
             if (client && client.available())
             {
-                gif.close();
                 return;
             }
 
@@ -319,31 +431,25 @@ void showGIF(char *name)
             if (config.display.loopGifEnabled)
             {
                 // You are in loop and you didn't request another file
-                if (config.status.gif.requestedGifPath.isEmpty())
+                if (!config.status.fileStatus.requestedFilePath.isEmpty())
                 {
-                    gif.reset();
-                }
-                // You are in loop but did request another file
-                else
-                {
-                    gif.close();
-                    File root = FILESYSTEM.open(config.gifConfig.gifDir);
-                    config.status.gif.gifFile = findGifByPath(root, config.status.gif.requestedGifPath);
-                    config.status.gif.currentGifPath = config.status.gif.requestedGifPath;
-                    config.status.gif.requestedGifPath = "";
-                    break;
+                    File root = FILESYSTEM.open(config.filesConfig.filesDir);
+                    config.status.fileStatus.displayFile = findImageByPath(root, config.status.fileStatus.requestedFilePath);
+                    return;
                 }
             }
-            else
-            {
-                gif.close();
-                break;
-            }
+
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
+    }
+    else
+    {
+        Serial.print("Selected file is not a gif: ");
+        Serial.println(file.path());
     }
 }
 
-int jpegDrawCallback(JPEGDRAW *pDraw)
+int jpegFastDrawCallback(JPEGDRAW *pDraw)
 {
 
     uint16_t *p = (uint16_t *)pDraw->pPixels;
@@ -357,6 +463,21 @@ int jpegDrawCallback(JPEGDRAW *pDraw)
         }
     }
     return 1; //
+}
+
+int jpegDrawCallback(JPEGDRAW *pDraw)
+{
+    uint16_t *p = (uint16_t *)pDraw->pPixels;
+    for (int y = 0; y < pDraw->iHeight; y++)
+    {
+        for (int x = 0; x < pDraw->iWidthUsed; x++)
+        {
+            int index = y * pDraw->iWidth + x; // line-by-line
+            uint16_t color = p[index];
+            gfx_layer_bg.drawPixel(pDraw->x + x, pDraw->y + y, color); // color 565
+        }
+    }
+    return 1;
 }
 
 void layer_draw_callback(int16_t x, int16_t y, uint8_t r_data, uint8_t g_data, uint8_t b_data)

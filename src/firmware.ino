@@ -83,9 +83,9 @@ struct Config bootDefaults = {
         .loopGifEnabled = true,     // We want our gifs to be on loop
         .displayBrightness = 100,   // That should be an okay value
     },
-    .gifConfig = {
-        .gifDir = "/",       // play all GIFs in this directory on the SD card
-        .maxGIFsPerPage = 4, // Change this value to set the maximum number of GIFs per page (keep this at 4)
+    .filesConfig = {
+        .filesDir = "/",       // play all Files in this directory
+        .maxFilesPerPage = 4, // Change this value to set the maximum number of Files per page (keep this at 4)
     },
     .status = {
         .validTime = false,   // If we have or not a valid time
@@ -99,12 +99,11 @@ struct Config bootDefaults = {
             .textXPosition = 64, // Will start off screen
             .textYPosition = 24, // center of screen (half of the text height)
         },
-        .gif = {
-            .currentGifPath = "",   // Store the current GIF file path
-            .requestedGifPath = "", // Path of the GIF requested by the user
-            .filePath = {0},        // Our open file path
+        .fileStatus = {
+            .currentFilePath = "",   // Store the current GIF file path
+            .requestedFilePath = "", // Path of the GIF requested by the user
             .currentFile = File(),
-            .gifFile = File(),
+            .displayFile = File(),
         },
         .fsUploadFile = File(),
     },
@@ -300,10 +299,6 @@ void setup()
       NULL);
 }
 
-void playGif(File gifFile)
-{
-}
-
 void loop()
 {
   // Get time, handle sync, etc
@@ -388,7 +383,7 @@ void TaskScreenDrawer(void *pvParameters)
 
   Serial.print("DisplayReady");
 
-  root = FILESYSTEM.open(config.gifConfig.gifDir);
+  root = FILESYSTEM.open(config.filesConfig.filesDir);
 
   jpegBuffer = (uint8_t *)malloc(BUFFER_SIZE);
   if (!jpegBuffer)
@@ -408,31 +403,31 @@ void TaskScreenDrawer(void *pvParameters)
   {
     Serial.print("Can't get root folder");
     vTaskDelay(pdMS_TO_TICKS(1000));
-    root = FILESYSTEM.open(config.gifConfig.gifDir);
+    root = FILESYSTEM.open(config.filesConfig.filesDir);
   }
 
   // Handle user-requested GIF
-  if (!config.status.gif.requestedGifPath.isEmpty())
+  if (!config.status.fileStatus.requestedFilePath.isEmpty())
   {
-    config.status.gif.gifFile = findGifByPath(root, config.status.gif.requestedGifPath);
-    config.status.gif.currentGifPath = config.status.gif.requestedGifPath;
-    config.status.gif.requestedGifPath = "";
+    config.status.fileStatus.displayFile = findImageByPath(root, config.status.fileStatus.requestedFilePath);
+    config.status.fileStatus.currentFilePath = config.status.fileStatus.requestedFilePath;
+    config.status.fileStatus.requestedFilePath = "";
   }
   // Resume last played
-  else if (!config.status.gif.gifFile && !config.status.gif.currentGifPath.isEmpty())
+  else if (!config.status.fileStatus.displayFile && !config.status.fileStatus.currentFilePath.isEmpty())
   {
-    config.status.gif.gifFile = findGifByPath(root, config.status.gif.currentGifPath);
+    config.status.fileStatus.displayFile = findImageByPath(root, config.status.fileStatus.currentFilePath);
   }
   // Fallback: play next available
-  else if (!config.status.gif.gifFile)
+  else if (!config.status.fileStatus.displayFile)
   {
-    config.status.gif.gifFile = root.openNextFile();
+    config.status.fileStatus.displayFile = root.openNextFile();
 
-    while (config.status.gif.gifFile)
+    while (config.status.fileStatus.displayFile)
     {
-      if (!config.status.gif.gifFile.isDirectory())
+      if (!config.status.fileStatus.displayFile.isDirectory())
       {
-        String name = config.status.gif.gifFile.name();
+        String name = config.status.fileStatus.displayFile.name();
         name.toLowerCase();
 
         if (name.endsWith(".gif") || name.endsWith(".jpg") || name.endsWith(".mjpeg"))
@@ -440,7 +435,7 @@ void TaskScreenDrawer(void *pvParameters)
           break;
         }
       }
-      config.status.gif.gifFile = root.openNextFile();
+      config.status.fileStatus.displayFile = root.openNextFile();
     }
   }
 
@@ -452,14 +447,12 @@ void TaskScreenDrawer(void *pvParameters)
 
     if (!client || !client.available())
     {
-      if (config.status.gif.gifFile)
+      if (config.status.fileStatus.displayFile)
       {
-        if (!config.status.gif.gifFile.isDirectory())
+        if (!config.status.fileStatus.displayFile.isDirectory())
         {
-          memset(config.status.gif.filePath, 0x0, sizeof(config.status.gif.filePath));
-          strcpy(config.status.gif.filePath, config.status.gif.gifFile.path());
-          config.status.gif.currentGifPath = String(config.status.gif.filePath);
-          showGIF(config.status.gif.filePath);
+          config.status.fileStatus.currentFilePath = String(config.status.fileStatus.displayFile.path());
+          showLocalFile(config.status.fileStatus.displayFile);
         }
       }
       else
@@ -470,13 +463,13 @@ void TaskScreenDrawer(void *pvParameters)
       if (!config.display.loopGifEnabled)
       {
         // Go get the next file
-        config.status.gif.gifFile = root.openNextFile();
+        config.status.fileStatus.displayFile = root.openNextFile();
 
-        if (!config.status.gif.gifFile)
+        if (!config.status.fileStatus.displayFile)
         {
           root.close();
-          root = FILESYSTEM.open(config.gifConfig.gifDir);
-          config.status.gif.gifFile = root.openNextFile();
+          root = FILESYSTEM.open(config.filesConfig.filesDir);
+          config.status.fileStatus.displayFile = root.openNextFile();
         }
       }
       else
@@ -511,7 +504,7 @@ void TaskScreenDrawer(void *pvParameters)
             capturing = false;
 
             // Decode JPEG
-            jpeg.openRAM(jpegBuffer, bufferPos, jpegDrawCallback);
+            jpeg.openRAM(jpegBuffer, bufferPos, jpegFastDrawCallback);
             jpeg.setMaxOutputSize(1);
             jpeg.decode(0, 0, 0);
             jpeg.close();
@@ -519,7 +512,7 @@ void TaskScreenDrawer(void *pvParameters)
           }
         }
         // Do not... do not add any delay
-        // vTaskDelay(pdMS_TO_TICKS(1));
+         //vTaskDelay(pdMS_TO_TICKS(10));
       }
     }
   }

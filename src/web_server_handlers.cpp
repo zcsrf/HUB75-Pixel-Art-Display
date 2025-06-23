@@ -12,7 +12,7 @@ String humanReadableSize(const size_t bytes)
         return String(bytes / 1024.0 / 1024.0 / 1024.0) + " GB";
 }
 
-String listFiles(bool ishtml, int page = 1, int pageSize = config.gifConfig.maxGIFsPerPage)
+String listFiles(bool ishtml, int page = 1, int pageSize = config.filesConfig.maxFilesPerPage)
 {
     String returnText = "";
     int fileIndex = 0;
@@ -260,7 +260,7 @@ void handleListFiles()
         page = server.arg("page").toInt();
     }
 
-    server.send(200, "text/html", listFiles(true, page, config.gifConfig.maxGIFsPerPage));
+    server.send(200, "text/html", listFiles(true, page, config.filesConfig.maxFilesPerPage));
 }
 
 void handleListFilesAlt()
@@ -403,7 +403,7 @@ void handleFileRequest()
         }
         else if (fileAction == "play")
         {
-            config.status.gif.requestedGifPath = fileName;
+            config.status.fileStatus.requestedFilePath = fileName;
             logmessage += " opening";
             server.send(200, "text/plain", "GIF will play on end: " + fileName);
         }
