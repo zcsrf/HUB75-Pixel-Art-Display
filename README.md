@@ -90,6 +90,21 @@ Also my Led Panel arrived with damage on two LEDs on one corner.
 
 ---
 
+## Useful information
+
+### Streaming 
+
+You can use FFMPEG to stream to the Pixel Art Display, but care should be taken on the frame size, frame rate and baudrate.
+
+Some useful commands:
+- **Stream a GIF**:
+  - `ffmpeg -stream_loop -1 -re -i '.\dragon-ball.gif' -vf "scale=64:64" -b:v 160000 -r 20 -pix_fmt yuv420p -f image2pipe -vcodec mjpeg tcp://10.200.50.186:12345` 
+- **Stream you screen (Windows)**:
+  - `ffmpeg -f gdigrab -framerate 30 -i desktop -vf "scale=64:64" -b:v 160000 -r 15 -pix_fmt yuv420p -f image2pipe -vcodec mjpeg tcp://10.200.50.186:12345`
+- **Stream a Movie**:
+  - `ffmpeg -stream_loop -1 -re -i 'LearnToCode.mp4' -vf "scale=64:64" -b:v 160000 -r 20 -f image2pipe -vcodec mjpeg tcp://10.200.50.186:12345`
+
+---
 ## Case and Assembly
 
 Check [mzashh - HUB75-Pixel-Art-Display](https://github.com/mzashh/HUB75-Pixel-Art-Display) if you want an example of case and diffuser, I still didn't have time to do something for my hardware.
