@@ -11,6 +11,8 @@
 #define BUFFER_SIZE 4096 // Size of buffer for MJPEG / JPEG packets
 #define TCP_PORT 12345   // Port used for mjpeg tcp streaming
 
+#define WAIT_STREAM_INACTIVITY 2500 // How long to wait before stream inactivity
+
 #define ANIMATION // Used to test specific animations under development / bypass all the other stuff
 
 struct Color
@@ -58,16 +60,17 @@ struct TimeConfig
 
 struct DisplayConfig
 {
-    bool clockEnabled;         // should be saved to preferences
-    bool scrollTextEnabled;    // should be saved to preferences
+    bool clockEnabled;            // should be saved to preferences
+    bool scrollTextEnabled;       // should be saved to preferences
     bool imagesEnabled;           // should be saved to preferences
     bool loopImagesEnabled;       // should be saved to preferences
-    uint8_t displayBrightness; // should be saved to preferences
-    uint16_t imageTimeoutSeconds;     // TODO: Not yet saved, not yet on Web UI
+    uint8_t displayBrightness;    // should be saved to preferences
+    uint16_t imageTimeoutSeconds; // TODO: Not yet saved, not yet on Web UI
 };
 
 struct DeviceStatus
 {
+    long lastStreamActivity;
     bool validTime;
     char clockTime[6];
     bool tickTurn;
@@ -85,6 +88,5 @@ struct Config
     struct FilesConfig filesConfig;
     struct DeviceStatus status;
 };
-
 
 #endif

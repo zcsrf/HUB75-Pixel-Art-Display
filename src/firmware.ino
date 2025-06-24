@@ -89,9 +89,10 @@ struct Config bootDefaults = {
         .maxFilesPerPage = 4, // Change this value to set the maximum number of Files per page (keep this at 4)
     },
     .status = {
-        .validTime = false,   // If we have or not a valid time
-        .clockTime = "12:00", // Where we store the "current time" do be displayed
-        .tickTurn = false,    // To show or not to show the `:`
+        .lastStreamActivity = 0, // Active Stream flag
+        .validTime = false,      // If we have or not a valid time
+        .clockTime = "12:00",    // Where we store the "current time" do be displayed
+        .tickTurn = false,       // To show or not to show the `:`
         .textColor = {.red = 255, .green = 255, .blue = 255},
         .scrollText = {
             .scrollText = "Hello",
@@ -369,8 +370,6 @@ void TaskScreenDrawer(void *pvParameters)
   dma_display->setBrightness8(config.display.displayBrightness); // 0-255
   dma_display->clearScreen();
 
-  dma_display->begin();
-
   // Draws some useful info at boot (after wifi connection)
   bootDraw();
   // Time to allow user to see the information
@@ -443,51 +442,13 @@ void TaskScreenDrawer(void *pvParameters)
   for (;;)
   {
     // noisyScreenRandomizer();
-
     checkForTcpClient();
 
-    if (!client || !client.available())
+    if (client && client.available())
     {
-      if (config.display.imagesEnabled)
-      {
-        if (config.status.fileStatus.displayFile)
-        {
-          if (!config.status.fileStatus.displayFile.isDirectory())
-          {
-            config.status.fileStatus.currentFilePath = String(config.status.fileStatus.displayFile.path());
-            showLocalFile(config.status.fileStatus.displayFile);
-          }
-        }
-        else
-        {
-          // No gif file :'(
-        }
+      config.status.lastStreamActivity = millis();
 
-        if (!config.display.loopImagesEnabled)
-        {
-          // Go get the next file
-          config.status.fileStatus.displayFile = root.openNextFile();
-
-          if (!config.status.fileStatus.displayFile)
-          {
-            root.close();
-            root = FILESYSTEM.open(config.filesConfig.filesDir);
-            config.status.fileStatus.displayFile = root.openNextFile();
-          }
-        }
-        else
-        {
-          // we are looping...
-        }
-      } else {
-        gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
-        stackLayers();
-        vTaskDelay(pdMS_TO_TICKS(10));
-      }
-    }
-    else
-    {
-      while (client && client.available())
+      while (client.available())
       {
         uint8_t b = client.read();
 
@@ -521,6 +482,50 @@ void TaskScreenDrawer(void *pvParameters)
         }
         // Do not... do not add any delay
         // vTaskDelay(pdMS_TO_TICKS(10));
+      }
+    }
+    else
+    {
+      if ((millis() - config.status.lastStreamActivity) > WAIT_STREAM_INACTIVITY)
+      {
+        if (config.display.imagesEnabled)
+        {
+          if (config.status.fileStatus.displayFile)
+          {
+            if (!config.status.fileStatus.displayFile.isDirectory())
+            {
+              config.status.fileStatus.currentFilePath = String(config.status.fileStatus.displayFile.path());
+              showLocalFile(config.status.fileStatus.displayFile);
+            }
+          }
+          else
+          {
+            // No gif file :'(
+          }
+
+          if (!config.display.loopImagesEnabled)
+          {
+            // Go get the next file
+            config.status.fileStatus.displayFile = root.openNextFile();
+
+            if (!config.status.fileStatus.displayFile)
+            {
+              root.close();
+              root = FILESYSTEM.open(config.filesConfig.filesDir);
+              config.status.fileStatus.displayFile = root.openNextFile();
+            }
+          }
+          else
+          {
+            // we are looping...
+          }
+        }
+        else
+        {
+          gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
+          stackLayers();
+          vTaskDelay(pdMS_TO_TICKS(10));
+        }
       }
     }
   }
