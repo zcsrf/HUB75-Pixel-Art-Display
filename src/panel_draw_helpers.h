@@ -11,7 +11,6 @@
 #include "panel_config.h"
 #include <AnimatedGIF.h>
 
-
 extern MatrixPanel_I2S_DMA *dma_display;
 extern GFX_Layer gfx_layer_fg;
 extern GFX_Layer gfx_layer_bg;
@@ -26,6 +25,25 @@ extern WiFiServer serverTcp;
 File findImageByPath(File root, const String &targetPath);
 uint16_t randomRGB565();
 void stackLayers();
+
+void randomDotAnimation();
+void randomVerticalLineAnimation();
+void randomHorizontalLineAnimation();
+void randomSquaresAnimation();
+void colorChangeSquaresAnimation();
+void colorChangeCirclesAnimation();
+void colorSegmentedCirclesAnimation();
+void crazyEyeAnimation();
+void alienDnaSequence();
+void juliaFractalAnimation();
+void mandelbrotFractalAnimation();
+void noisePortalAnimation();
+void randomUnderDrugsAnimation(uint8_t option);
+void kaleidoscopeAnimation();
+void colorWavesAnimation();
+void dancingColorBlob();
+
+
 void bootDraw();
 void clockDraw();
 void drawScrollingText();
@@ -46,6 +64,5 @@ void layer_draw_callback_alt(int16_t x, int16_t y, uint16_t color);
 
 // Mode this to client handler...
 void checkForTcpClient();
-
 
 #endif

@@ -29,5 +29,6 @@ void handleVersionFlash();
 void handleFileRequest();
 void handleSetColor();
 void handleSetScrollText();
+void handleSetAnimation();
 
 #endif

@@ -479,3 +479,27 @@ void handleSetScrollText()
         server.send(200);
     }
 }
+
+void handleSetAnimation()
+{
+    if (server.hasArg("state"))
+    {
+        config.display.animationEnabled = (server.arg(0) == "on");
+    }
+
+    if (server.hasArg("index"))
+    {
+        config.display.animationIndex = server.arg("index").toInt();
+    }
+    
+    if (server.hasArg("time")){
+        config.display.animationTime = server.arg("time").toInt();
+
+        // Don't allow 0 as a value
+        if (config.display.animationTime < 1){
+            config.display.animationTime = 1;
+        }
+    }
+
+    server.send(200);
+}

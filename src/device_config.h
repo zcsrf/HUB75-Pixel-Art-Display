@@ -66,6 +66,9 @@ struct DisplayConfig
     bool loopImagesEnabled;       // should be saved to preferences
     uint8_t displayBrightness;    // should be saved to preferences
     uint16_t imageTimeoutSeconds; // TODO: Not yet saved, not yet on Web UI
+    bool animationEnabled;        // TODO: Not yet saved, not yet on Web UI
+    uint8_t animationIndex;           // TODO: Not yet saved, not yet on Web UI
+    uint8_t animationTime;        // The bigger the slower the animation
 };
 
 struct DeviceStatus
