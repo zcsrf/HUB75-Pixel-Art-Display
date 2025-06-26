@@ -490,118 +490,118 @@ void TaskScreenDrawer(void *pvParameters)
     }
     else
     {
-      // if ((millis() - config.status.lastStreamActivity) > WAIT_STREAM_INACTIVITY)
-      //{
-
-      if (config.display.imagesEnabled)
+      if ((millis() - config.status.lastStreamActivity) > WAIT_STREAM_INACTIVITY)
       {
-        if (config.status.fileStatus.displayFile)
+
+        if (config.display.imagesEnabled)
         {
-          if (!config.status.fileStatus.displayFile.isDirectory())
+          if (config.status.fileStatus.displayFile)
           {
-            config.status.fileStatus.currentFilePath = String(config.status.fileStatus.displayFile.path());
-            showLocalFile(config.status.fileStatus.displayFile);
+            if (!config.status.fileStatus.displayFile.isDirectory())
+            {
+              config.status.fileStatus.currentFilePath = String(config.status.fileStatus.displayFile.path());
+              showLocalFile(config.status.fileStatus.displayFile);
+            }
           }
-        }
-        else
-        {
-          // No gif file :'(
-        }
-
-        if (!config.display.loopImagesEnabled)
-        {
-          // Go get the next file
-          config.status.fileStatus.displayFile = root.openNextFile();
-
-          if (!config.status.fileStatus.displayFile)
+          else
           {
-            root.close();
-            root = FILESYSTEM.open(config.filesConfig.filesDir);
+            // No gif file :'(
+          }
+
+          if (!config.display.loopImagesEnabled)
+          {
+            // Go get the next file
             config.status.fileStatus.displayFile = root.openNextFile();
+
+            if (!config.status.fileStatus.displayFile)
+            {
+              root.close();
+              root = FILESYSTEM.open(config.filesConfig.filesDir);
+              config.status.fileStatus.displayFile = root.openNextFile();
+            }
           }
+          else
+          {
+            // we are looping...
+          }
+        }
+        else if (config.display.animationEnabled)
+        {
+          switch (config.display.animationIndex)
+          {
+          case 0:
+            config.display.animationIndex = rand() % 18;
+            break;
+          case 1:
+            randomDotAnimation();
+            break;
+          case 2:
+            randomVerticalLineAnimation();
+            break;
+          case 3:
+            randomHorizontalLineAnimation();
+            break;
+          case 4:
+            randomSquaresAnimation();
+            break;
+          case 5:
+            colorChangeSquaresAnimation();
+            break;
+          case 6:
+            colorChangeCirclesAnimation();
+            break;
+          case 7:
+            colorSegmentedCirclesAnimation();
+            break;
+          case 8:
+            crazyEyeAnimation();
+            break;
+          case 9:
+            juliaFractalAnimation();
+            break;
+          case 10:
+            mandelbrotFractalAnimation();
+            break;
+          case 11:
+            noisePortalAnimation();
+            break;
+          case 12:
+            randomUnderDrugsAnimation(0);
+            break;
+          case 13:
+            randomUnderDrugsAnimation(1);
+            break;
+          case 14:
+            randomUnderDrugsAnimation(2);
+            break;
+          case 15:
+            kaleidoscopeAnimation();
+            break;
+          case 16:
+            colorWavesAnimation();
+            break;
+          case 17:
+            dancingColorBlob();
+            break;
+          case 18:
+            alienDnaSequence();
+            break;
+
+          default:
+            mandelbrotFractalAnimation();
+            break;
+          }
+
+          stackLayers();
+          vTaskDelay(pdMS_TO_TICKS(config.display.animationTime));
         }
         else
         {
-          // we are looping...
+          gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
+          stackLayers();
+          vTaskDelay(pdMS_TO_TICKS(10));
         }
       }
-      else if (config.display.animationEnabled)
-      {
-        switch (config.display.animationIndex)
-        {
-        case 0:
-          config.display.animationIndex = rand() % 18;
-          break;
-        case 1:
-          randomDotAnimation();
-          break;
-        case 2:
-          randomVerticalLineAnimation();
-          break;
-        case 3:
-          randomHorizontalLineAnimation();
-          break;
-        case 4:
-          randomSquaresAnimation();
-          break;
-        case 5:
-          colorChangeSquaresAnimation();
-          break;
-        case 6:
-          colorChangeCirclesAnimation();
-          break;
-        case 7:
-          colorSegmentedCirclesAnimation();
-          break;
-        case 8:
-          crazyEyeAnimation();
-          break;
-        case 9:
-          juliaFractalAnimation();
-          break;
-        case 10:
-          mandelbrotFractalAnimation();
-          break;
-        case 11:
-          noisePortalAnimation();
-          break;
-        case 12:
-          randomUnderDrugsAnimation(0);
-          break;
-        case 13:
-          randomUnderDrugsAnimation(1);
-          break;
-        case 14:
-          randomUnderDrugsAnimation(2);
-          break;
-        case 15:
-          kaleidoscopeAnimation();
-          break;
-        case 16:
-          colorWavesAnimation();
-          break;
-        case 17:
-          dancingColorBlob();
-          break;
-        case 18:
-          alienDnaSequence();
-          break;
-
-        default:
-          mandelbrotFractalAnimation();
-          break;
-        }
-
-        stackLayers();
-        vTaskDelay(pdMS_TO_TICKS(config.display.animationTime));
-      }
-      else
-      {
-        gfx_layer_bg.clear(); // Clear the background layer if GIF playback is disabled
-        stackLayers();
-        vTaskDelay(pdMS_TO_TICKS(10));
-      }
-      // }
     }
   }
 }
