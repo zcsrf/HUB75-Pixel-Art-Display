@@ -1209,8 +1209,20 @@ void showLocalFile(File file)
     }
 }
 
+unsigned long lastFpsTime = 0;
+int frameCounter = 0;
+
 int jpegFastDrawCallback(JPEGDRAW *pDraw)
 {
+    frameCounter++;
+
+    unsigned long currentTime = millis();
+    if (currentTime - lastFpsTime >= 1000)
+    {
+        Serial.printf("FPS: %d\n", frameCounter);
+        frameCounter = 0;
+        lastFpsTime = currentTime;
+    }
 
     uint16_t *p = (uint16_t *)pDraw->pPixels;
     for (int y = 0; y < pDraw->iHeight; y++)
@@ -1222,7 +1234,7 @@ int jpegFastDrawCallback(JPEGDRAW *pDraw)
             layer_draw_callback_alt(pDraw->x + x, pDraw->y + y, color);
         }
     }
-    return 1; //
+    return 1;
 }
 
 int jpegDrawCallback(JPEGDRAW *pDraw)
