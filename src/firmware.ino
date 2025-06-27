@@ -450,10 +450,10 @@ void TaskScreenDrawer(void *pvParameters)
 
     if (client && client.available())
     {
-      config.status.lastStreamActivity = millis();
-
       while (client.available())
       {
+        config.status.lastStreamActivity = millis();
+
         uint8_t b = client.read();
 
         // JPEG start marker: 0xFFD8
@@ -492,6 +492,7 @@ void TaskScreenDrawer(void *pvParameters)
     {
       if ((millis() - config.status.lastStreamActivity) > WAIT_STREAM_INACTIVITY)
       {
+        bufferPos = 0;
 
         if (config.display.imagesEnabled)
         {
