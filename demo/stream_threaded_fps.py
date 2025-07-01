@@ -83,7 +83,8 @@ def animation_thread():
 
         try:
             frame_queue.put(frame, timeout=1)
-            cv2.imshow("ShowFrame", frame)
+            frame_resize = cv2.resize(frame, (512, 512), interpolation = cv2.INTER_AREA)
+            cv2.imshow("ShowFrame", frame_resize)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
         except queue.Full:
