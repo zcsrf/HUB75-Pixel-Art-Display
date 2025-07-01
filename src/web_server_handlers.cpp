@@ -359,6 +359,21 @@ void handleVersionFlash()
     // Scroll Text
     message += ",\"stt\":\"";
     message += String(config.status.scrollText.scrollText);
+    message += "\"";
+
+    // Animation State
+    message += ",\"as\":\"";
+    message += String(config.display.animationEnabled);
+    message += "\"";
+
+    // Animation Selected
+    message += ",\"ais\":\"";
+    message += String(config.display.animationIndex);
+    message += "\"";
+
+    // Animation Delay
+    message += ",\"atd\":\"";
+    message += String(config.display.animationTime);
 
     message += "\"}";
 
@@ -491,12 +506,14 @@ void handleSetAnimation()
     {
         config.display.animationIndex = server.arg("index").toInt();
     }
-    
-    if (server.hasArg("time")){
+
+    if (server.hasArg("time"))
+    {
         config.display.animationTime = server.arg("time").toInt();
 
         // Don't allow 0 as a value
-        if (config.display.animationTime < 1){
+        if (config.display.animationTime < 1)
+        {
             config.display.animationTime = 1;
         }
     }

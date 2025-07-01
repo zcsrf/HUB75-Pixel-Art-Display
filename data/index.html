@@ -8,6 +8,7 @@
         integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT" crossorigin="anonymous">
     <title>HUB75 Pixel-Art-Display</title>
 </head>
+
 <body>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"
         integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO"
@@ -15,12 +16,12 @@
     <script src=https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js></script>
     <div class="container">
         <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
-          <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-dark text-decoration-none">
-            <svg class="bi me-2" width="40" height="32"></svg>
-            <span class="fs-4">HUB75 Pixel-Art-Display</span>
-          </a>
+            <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-dark text-decoration-none">
+                <svg class="bi me-2" width="40" height="32"></svg>
+                <span class="fs-4">HUB75 Pixel-Art-Display</span>
+            </a>
         </header>
-      </div>
+    </div>
     <div class='container' style=margin-top:50px>
         <div class="card-group">
             <div class="card">
@@ -71,28 +72,35 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-sm-3">
+                    <div class="col-sm">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="play-gif-check" checked
                                 onchange="toggleGIF(this)">
                             <label class="form-check-label" for="flexSwitchCheckChecked">Play Gif</label>
                         </div>
                     </div>
-                    <div class="col-sm-3">
+                    <div class="col-sm">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="loop-gif-check" checked
                                 onchange="toggleLoopGif(this)">
                             <label class="form-check-label" for="flexSwitchCheckChecked">Loop Gif</label>
                         </div>
                     </div>
-                    <div class="col-sm-3">
+                    <div class="col-sm">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="animation-check" checked
+                                onchange="toggleAnimation(this)">
+                            <label class="form-check-label" for="flexSwitchCheckChecked">Animations</label>
+                        </div>
+                    </div>
+                    <div class="col-sm">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="show-clock-check" checked
                                 onchange="toggleClock(this)">
                             <label class="form-check-label" for="flexSwitchCheckChecked">Show Clock</label>
                         </div>
                     </div>
-                    <div class="col-sm-3">
+                    <div class="col-sm">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="show-text-check" checked
                                 onchange="toggleScrollText(this)">
@@ -150,6 +158,51 @@
         <br>
         <div class="card">
             <div class="card-header">
+                <h5>Animation</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-sm-6">
+                        <div class="input-group mb-3">
+                            <label class="input-group-text" for="inputGroupSelect01">Set Animation</label>
+                            <select class="form-select" id="ais" onchange='setAnimation(this.value)'>
+                                <option value="0">Random Animation</option>
+                                <option value="1">Random Dots</option>
+                                <option value="2" selected>Random Vertical Lines</option>
+                                <option value="3">Random Horizontal Lines</option>
+                                <option value="4">Random Squares</option>
+                                <option value="5">Color Change Squares</option>
+                                <option value="6">Color Change Circles</option>
+                                <option value="7">Color Segmented Circles</option>
+                                <option value="8">Crazy Eye</option>
+                                <option value="9">Julia Fractal</option>
+                                <option value="10">Mandelbrot Fractal</option>
+                                <option value="11">Noise Portal</option>
+                                <option value="12">Random Under Drugs 1</option>
+                                <option value="13">Random Under Drugs 2</option>
+                                <option value="14">Random Under Drugs 3</option>
+                                <option value="15">Kaleidoscope</option>
+                                <option value="16">Color Waves</option>
+                                <option value="17">Dancing Color Blob</option>
+                                <option value="18">Alien Dna Sequence</option>
+                            </select>
+                        </div>
+
+                    </div>
+                    <div class="col-sm-6">
+                        <div id='ar'>Animation Delay: 1
+                        </div>
+                        <input id="ars" type='range' class="form-range" min='0' max='50' value='1'
+                            onchange='setAnimationDelay(this.value)' />
+                        <br>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+        <br>
+        <div class="card">
+            <div class="card-header">
                 <h5>Upload File</h5>
             </div>
             <div class="card-body">
@@ -182,7 +235,7 @@
 
         <footer class="py-3 my-4">
             <p class="text-center text-body-secondary">HUB75 Pixel Art display by <a
-                href="https://github.com/zcsrf/HUB75-Pixel-Art-Display" target="_blank">zcsrf</a> forked from <a
+                    href="https://github.com/zcsrf/HUB75-Pixel-Art-Display" target="_blank">zcsrf</a> forked from <a
                     href="https://github.com/mzashh/HUB75-Pixel-Art-Display/" target="_blank">mzashh</a></p>
         </footer>
 
@@ -248,6 +301,16 @@
                     document.getElementById("stc").value = rgbToHex(t.str, t.stg, t.stb);
 
                     document.getElementById('stt').value = t.stt;
+
+
+                    if (t.as == '1') { document.getElementById("animation-check").checked = true; }
+                    else { document.getElementById("animation-check").checked = false; }
+
+                    document.getElementById("ais").value = t.ais;
+
+                    var arText = 'Animation Delay: ' + t.atd;
+                    $('#ar').html(arText);
+                    document.getElementById('ars').value = t.atd;
 
 
                     console.log(t)
@@ -339,6 +402,13 @@
             }
             function toggleGIF(checkbox) {
                 const state = checkbox.checked ? "on" : "off";
+
+                // Automatically disable Gif playback
+                if (state === "on") {
+                    document.getElementById("animation-check").checked = false;
+                    toggleAnimation(document.getElementById("animation-check"));
+                }
+
                 fetch(`/toggleGIF?state=${state}`)
                     .then(response => response.text())
                     .then(data => {
@@ -361,6 +431,26 @@
                     .catch(error => {
                         console.error("Error toggling Loop GIF:", error);
                         alert("Failed to toggle Loop GIF.");
+                    });
+            }
+            function toggleAnimation(checkbox) {
+                const state = checkbox.checked ? "on" : "off";
+
+                // Automatically disable Gif playback
+                if (state === "on") {
+                    document.getElementById("play-gif-check").checked = false;
+                    toggleGIF(document.getElementById("play-gif-check"));
+                }
+
+                fetch(`/setAnimation?state=${state}`)
+                    .then(response => response.text())
+                    .then(data => {
+                        console.log(data);
+                        alert(`Animation ${state === "on" ? "enabled" : "disabled"}`);
+                    })
+                    .catch(error => {
+                        console.error("Error toggling Animation:", error);
+                        alert("Failed to set Animation state.");
                     });
             }
             function toggleClock(checkbox) {
@@ -427,7 +517,32 @@
                         alert("Failed to update scrolling text.");
                     });
             }
-
+            function setAnimation(value) {
+                // Set current animation
+                fetch(`/setAnimation?index=${value}`)
+                    .then(response => response.text())
+                    .then(data => {
+                        console.log(data);
+                        alert("Animation Index Set!");
+                    })
+                    .catch(error => {
+                        console.error("Error setting Animation index:", error);
+                        alert("Failed to set Animation index.");
+                    });
+            }
+            function setAnimationDelay(value) {
+                // Set current animation
+                fetch(`/setAnimation?time=${value}`)
+                    .then(response => response.text())
+                    .then(data => {
+                        console.log(data);
+                        alert("Animation Delay Set!");
+                    })
+                    .catch(error => {
+                        console.error("Error setting Animation delay:", error);
+                        alert("Failed to set Animation delay.");
+                    });
+            }
             function sendScrollSpeed(value) {
                 // Send the text, font size, and speed to the firmware
                 fetch(`/updateScrollText?speed=${value}`)
@@ -589,14 +704,14 @@
             }
             function completeHandler(event) {
                 console.log('Upload Complete');
-                
+
                 var previewOut = document.getElementById('previewOut');
                 preview.innerHTML = ''; // Clear existing
                 var picker = document.getElementById("formFile");
                 picker.value = '';
 
                 loadGallery();
-                
+
 
                 /*
                 _("status").innerHTML = "Upload Complete";
