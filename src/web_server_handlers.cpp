@@ -374,7 +374,21 @@ void handleVersionFlash()
     // Animation Delay
     message += ",\"atd\":\"";
     message += String(config.display.animationTime);
+    message += "\"";
 
+    // Animation Selected
+    message += ",\"fss\":\"";
+    message += String(config.display.fftStyle);
+    message += "\"";
+
+    // Animation Delay
+    message += ",\"fpr\":\"";
+    message += String(config.display.fftPeakHolding);
+    message += "\"";
+
+    // Animation Delay
+    message += ",\"fsr\":\"";
+    message += String(config.display.fttSmoothFactor * 100.0);
     message += "\"}";
 
     server.send(200, "application/json", message);
@@ -499,7 +513,7 @@ void handleSetAnimation()
 {
     if (server.hasArg("state"))
     {
-        config.display.animationEnabled = (server.arg(0) == "on");
+        config.display.animationEnabled = (server.arg("state") == "on");
     }
 
     if (server.hasArg("index"))
@@ -516,6 +530,58 @@ void handleSetAnimation()
         {
             config.display.animationTime = 1;
         }
+    }
+
+    server.send(200);
+}
+
+void handleClockSettings()
+{
+    if (server.hasArg("small"))
+    {
+        config.display.smallClock = (server.arg("small") == "on");
+    }
+
+    if (server.hasArg("position"))
+    {
+        config.display.clockPosition = server.arg("position").toInt();
+    }
+
+    server.send(200);
+}
+
+void handleFttRequests()
+{
+    if (server.hasArg("smooth"))
+    {
+        float smooth = server.arg("smooth").toFloat();
+        smooth = smooth / 100.0;
+        if (smooth < 0.01) {
+            smooth = 0.01;
+        }
+        else if (smooth > 0.99)
+        {
+            smooth = 0.99;
+        }
+
+        config.display.fttSmoothFactor = smooth;
+    }
+    
+    if (server.hasArg("peak"))
+    {
+        config.display.fftPeakHolding = server.arg("peak").toInt();
+        
+        if (config.display.fftPeakHolding < 1)
+        {
+            config.display.fftPeakHolding = 1;
+        } else if (config.display.fftPeakHolding > 50){
+            config.display.fftPeakHolding = 50;
+        }
+    }
+
+    if (server.hasArg("style"))
+    {
+        config.display.fftStyle = server.arg("style").toInt();
     }
 
     server.send(200);

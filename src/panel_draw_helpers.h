@@ -9,6 +9,7 @@
 
 #include "device_config.h"
 #include "panel_config.h"
+#include <WLED-sync.h>
 #include <AnimatedGIF.h>
 
 extern MatrixPanel_I2S_DMA *dma_display;
@@ -22,9 +23,31 @@ extern GFX_LayerCompositor gfx_compositor;
 extern WiFiClient client;
 extern WiFiServer serverTcp;
 
+typedef struct
+{
+    double centerX;
+    double centerY;
+} MandelbrotZoomCenter;
+
+struct Particle
+{
+    float x, y;
+    float vx, vy;
+};
+
 File findImageByPath(File root, const String &targetPath);
 uint16_t randomRGB565();
 void stackLayers();
+
+std::array<uint8_t, PANEL_RES_X> interpolateFFT(const std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult);
+
+void fftBars(const std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate);
+void fftVolumes(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate);
+void fftHistoryGraph(std::array<std::array<uint8_t, NUM_GEQ_CHANNELS>, PANEL_RES_Y> data, bool rotate, bool interpolate);
+void fftBallBars(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate);
+void fttKaleidscope(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate);
+void fftBallBarsHalfMirror(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate);
+void fttParticles(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult);
 
 void randomDotAnimation();
 void randomVerticalLineAnimation();
@@ -42,7 +65,6 @@ void randomUnderDrugsAnimation(uint8_t option);
 void kaleidoscopeAnimation();
 void colorWavesAnimation();
 void dancingColorBlob();
-
 
 void bootDraw();
 void clockDraw();

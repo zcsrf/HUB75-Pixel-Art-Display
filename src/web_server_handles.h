@@ -30,5 +30,7 @@ void handleFileRequest();
 void handleSetColor();
 void handleSetScrollText();
 void handleSetAnimation();
+void handleClockSettings();
+void handleFttRequests();
 
 #endif

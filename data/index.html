@@ -203,6 +203,63 @@
         <br>
         <div class="card">
             <div class="card-header">
+                <h5>Audio Visualizers</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-sm-6">
+                        <div class="input-group mb-3">
+                            <label class="input-group-text" for="inputGroupSelect01">Set Style</label>
+                            <select class="form-select" id="fss" onchange='setFttSyle(this.value)'>
+                                <option value="0">Random Style</option>
+                                <option value="1">Bars LowRes </option>
+                                <option value="2" selected>Bars LowRes + Peaks</option>
+                                <option value="3">Bars Interp</option>
+                                <option value="4">Bars Interp + Peaks</option>
+                                <option value="5">Volumes LowRes</option>
+                                <option value="6">Volumes LowRes + Peaks</option>
+                                <option value="7">Volumes Interp</option>
+                                <option value="8">Volumes Interp + Peaks</option>
+                                <option value="9">Waterfall History LowRes</option>
+                                <option value="10">Waterfall History Interp</option>
+                                <option value="11">Montains History LowRes</option>
+                                <option value="12">Montains History Interp</option>
+                                <option value="13">Ball of Bars LowRes</option>
+                                <option value="14">Ball of Bars LowRes + Peaks</option>
+                                <option value="15">Ball of Bars Interp</option>
+                                <option value="16">Ball of Bars Interp + Peaks</option>
+                                <option value="17">Ball Kaleidoscope LowRes</option>
+                                <option value="18">Ball Kaleidoscope LowRes + Peaks</option>
+                                <option value="19">Ball Kaleidoscope Interp</option>
+                                <option value="20">Ball Kaleidoscope Interp + Peaks</option>
+                                <option value="21">Mirror Ball LowRes</option>
+                                <option value="22">Mirror Ball LowRes + Peaks</option>
+                                <option value="23">Mirror Ball Interp</option>
+                                <option value="24">Mirror Ball Interp + Peaks</option>
+                                <option value="25">Running Particles</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-sm-3">
+                        <div id='fpt'>Peak Hold: 1
+                        </div>
+                        <input id="fpr" type='range' class="form-range" min='0' max='50' value='1'
+                            onchange='setFttPeakHold(this.value)' />
+                        <br>
+                    </div>
+                    <div class="col-sm-3">
+                        <div id='fst'>Smoothing Factor: 1
+                        </div>
+                        <input id="fsr" type='range' class="form-range" min='1' max='99' value='1'
+                            onchange='setFttSmooth(this.value)' />
+                        <br>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <br>
+        <div class="card">
+            <div class="card-header">
                 <h5>Upload File</h5>
             </div>
             <div class="card-body">
@@ -313,6 +370,16 @@
                     document.getElementById('ars').value = t.atd;
 
 
+                    document.getElementById("fss").value = t.fss;
+                    var fpText = 'Peak Hold: ' + t.fpr;
+                    $('#fpt').html(fpText);
+                    document.getElementById('fpr').value = t.fpr;
+
+                    var fsText = 'Smoothing Factor: ' + t.fsr;
+                    $('#fst').html(fsText);
+                    document.getElementById('fsr').value = t.fsr;
+
+
                     console.log(t)
                 })
             }
@@ -350,8 +417,6 @@
                 fetch(url)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert(`Playing GIF: ${filename}`);
                     })
                     .catch(error => {
                         console.error("Error playing GIF:", error);
@@ -364,8 +429,6 @@
                 fetch(filename)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("File deleted successfully!");
                         loadGallery(); // Reload the page to update the file list
                     })
                     .catch(error => {
@@ -392,8 +455,6 @@
                 fetch(`/setColor?r=${r}&g=${g}&b=${b}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Color updated successfully!");
                     })
                     .catch(error => {
                         console.error("Error:", error);
@@ -412,8 +473,6 @@
                 fetch(`/toggleGIF?state=${state}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("GIF playback state updated successfully!");
                     })
                     .catch(error => {
                         console.error("Error:", error);
@@ -425,8 +484,6 @@
                 fetch(`/toggleLoopGif?state=${state}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert(`Loop GIF ${state === "on" ? "enabled" : "disabled"}`);
                     })
                     .catch(error => {
                         console.error("Error toggling Loop GIF:", error);
@@ -445,8 +502,6 @@
                 fetch(`/setAnimation?state=${state}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert(`Animation ${state === "on" ? "enabled" : "disabled"}`);
                     })
                     .catch(error => {
                         console.error("Error toggling Animation:", error);
@@ -465,8 +520,6 @@
                 fetch(`/toggleClock?state=${state}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Clock state updated successfully!");
                     })
                     .catch(error => {
                         console.error("Error:", error);
@@ -476,16 +529,6 @@
             function toggleScrollText(checkbox) {
                 const isEnabled = checkbox.checked;
 
-                /*const scrollTextInput = document.getElementById("scrollText");
-                const fontSizeToggle = document.getElementById("fontSizeToggle");
-                const scrollSpeedInput = document.getElementById("scrollSpeed");
-
-                // Enable or disable the text input, font size toggle, and speed input
-                scrollTextInput.disabled = !isEnabled;
-                fontSizeToggle.disabled = !isEnabled;
-                scrollSpeedInput.disabled = !isEnabled;*/
-
-                // Automatically disable the clock if scrolling text is enabled
                 if (isEnabled) {
                     document.getElementById("show-clock-check").checked = false;
                     toggleClock(document.getElementById("show-clock-check"));
@@ -495,8 +538,6 @@
                 fetch(`/toggleScrollText?state=${isEnabled ? "on" : "off"}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert(`Scrolling text ${isEnabled ? "enabled" : "disabled"}`);
                     })
                     .catch(error => {
                         console.error("Error toggling scrolling text:", error);
@@ -509,8 +550,6 @@
                 fetch(`/updateScrollText?fontSize=${value}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Scrolling text updated successfully!");
                     })
                     .catch(error => {
                         console.error("Error updating scrolling text:", error);
@@ -522,8 +561,6 @@
                 fetch(`/setAnimation?index=${value}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Animation Index Set!");
                     })
                     .catch(error => {
                         console.error("Error setting Animation index:", error);
@@ -535,21 +572,62 @@
                 fetch(`/setAnimation?time=${value}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Animation Delay Set!");
+                        var arText = 'Animation Delay: ' + t.value;
+                        $('#ar').html(arText);
                     })
                     .catch(error => {
                         console.error("Error setting Animation delay:", error);
                         alert("Failed to set Animation delay.");
                     });
             }
+            function setFttSyle(value) {
+                // Set current animation
+                fetch(`/setFtt?style=${value}`)
+                    .then(response => response.text())
+                    .then(data => {
+                    })
+                    .catch(error => {
+                        console.error("Error setting Audio Visualizer:", error);
+                        alert("Failed to set Audio Visualizer.");
+                    });
+            }
+
+            function setFttPeakHold(value) {
+                // Set current animation
+                fetch(`/setFtt?peak=${value}`)
+                    .then(response => response.text())
+                    .then(data => {
+                        var fpText = 'Peak Hold: ' + value;
+                        $('#fpt').html(fpText);
+                    })
+                    .catch(error => {
+                        console.error("Error setting Audio Visualizer Peaks delay:", error);
+                        alert("Failed to set Audio Visualizer Peaks delay.");
+                    });
+            }
+            function setFttSmooth(value) {
+                // Set current animation
+                fetch(`/setFtt?smooth=${value}`)
+                    .then(response => response.text())
+                    .then(data => {
+                        var fpText = 'Smoothing Factor: ' + value;
+                        $('#fst').html(value);
+                    })
+                    .catch(error => {
+                        console.error("Error setting Smooth Factor :", error);
+                        alert("Failed to set Audio Visualizer Smooth Factor.");
+                    });
+            }
+
+
+
             function sendScrollSpeed(value) {
                 // Send the text, font size, and speed to the firmware
                 fetch(`/updateScrollText?speed=${value}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Scrolling text updated successfully!");
+                        $('#sr').html(srText);
+                        document.getElementById('srs').value = value;
                     })
                     .catch(error => {
                         console.error("Error updating scrolling text:", error);
@@ -562,8 +640,6 @@
                 fetch(`/updateScrollText?text=${encodeURIComponent(value)}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Scrolling text updated successfully!");
                     })
                     .catch(error => {
                         console.error("Error updating scrolling text:", error);
@@ -580,8 +656,6 @@
                 fetch(`/updateScrollText?text=${encodeURIComponent(text)}&fontSize=${fontSize}&speed=${speed}`)
                     .then(response => response.text())
                     .then(data => {
-                        console.log(data);
-                        alert("Scrolling text updated successfully!");
                     })
                     .catch(error => {
                         console.error("Error updating scrolling text:", error);
@@ -605,8 +679,6 @@
                     fetch(url)
                         .then(response => response.text())
                         .then(data => {
-                            console.log(data);
-                            alert("File deleted successfully!");
                             location.reload(); // Reload the page to update the file list
                         })
                         .catch(error => {
@@ -621,8 +693,6 @@
                     fetch(url)
                         .then(response => response.text())
                         .then(data => {
-                            console.log(data);
-                            alert(`Playing GIF: ${filename}`);
                         })
                         .catch(error => {
                             console.error("Error playing GIF:", error);

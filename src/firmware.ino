@@ -14,6 +14,7 @@
 
 #include <FS.h>
 
+#include <WLED-sync.h> // https://github.com/netmindz/WLED-sync
 #include <AnimatedGIF.h>
 #include <JPEGDEC.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
@@ -66,6 +67,10 @@ uint8_t *jpegBuffer;
 bool capturing = false;
 int bufferPos = 0;
 
+std::array<uint8_t, NUM_GEQ_CHANNELS> smoothFtt = {0};
+std::array<uint8_t, PANEL_RES_X> interpolatedFtt = {0};
+std::array<std::array<uint8_t, NUM_GEQ_CHANNELS>, PANEL_RES_Y> waterfallBuffer = {};
+
 struct Config bootDefaults = {
     .wifi = {
         .ssid = "Rede-IOT",        // Your WiFi SSID
@@ -84,8 +89,13 @@ struct Config bootDefaults = {
         .displayBrightness = 100,   // That should be an okay value
         .imageTimeoutSeconds = 30,  // How long to display a image when not looping
         .animationEnabled = true,   // If we are showing animations
-        .animationIndex = 254,      // To show a specific animation >1
+        .animationIndex = 10,      // To show a specific animation >1
         .animationTime = 1,         // How long to sleep between
+        .smallClock = true,         // Use small clock
+        .clockPosition = 3,         // 3 is bottom right
+        .fttSmoothFactor = 0.8f,    // seems to be a good value
+        .fftStyle = 4,              // FFT with peaks
+        .fftPeakHolding = 5,        // Hold peaks for 5 frames
     },
     .filesConfig = {
         .filesDir = "/",      // play all Files in this directory
@@ -93,6 +103,7 @@ struct Config bootDefaults = {
     },
     .status = {
         .lastStreamActivity = 0, // Active Stream flag
+        .lastFttActivity = 0,    // FTT Activiy Flag
         .validTime = false,      // If we have or not a valid time
         .clockTime = "12:00",    // Where we store the "current time" do be displayed
         .tickTurn = false,       // To show or not to show the `:`
@@ -334,6 +345,7 @@ void loop()
 void TaskScreenDrawer(void *pvParameters)
 {
   File root;
+  WLEDSync sync;
 
   // Do Panel Init
   HUB75_I2S_CFG mxconfig(
@@ -399,6 +411,7 @@ void TaskScreenDrawer(void *pvParameters)
   }
 
   serverTcp.begin();
+  sync.begin();
 
   unsigned int temp = uxTaskGetStackHighWaterMark(nullptr);
   printf("high stack water mark is %u\n", temp);
@@ -494,7 +507,133 @@ void TaskScreenDrawer(void *pvParameters)
       {
         bufferPos = 0;
 
-        if (config.display.imagesEnabled)
+        if (sync.read())
+        {
+          for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+          {
+            float current = static_cast<float>(smoothFtt[i]);
+            float incoming = static_cast<float>(sync.fftResult[i]);
+            float smoothed = current * config.display.fttSmoothFactor + incoming * (1.0f - config.display.fttSmoothFactor);
+            smoothFtt[i] = static_cast<uint8_t>(smoothed);
+          }
+
+          interpolatedFtt = interpolateFFT(smoothFtt);
+          for (int y = PANEL_RES_Y - 1; y > 0; --y)
+          {
+            waterfallBuffer[y] = waterfallBuffer[y - 1];
+          }
+
+          // Insert new top row
+          waterfallBuffer[0] = smoothFtt;
+
+          // we should filter for "silence", program might be sending frames of "silence"
+          config.status.lastFttActivity = millis();
+        }
+
+        if ((millis() - config.status.lastFttActivity) < WAIT_FTT_INACTIVITY)
+        {
+          /*
+          Serial.printf("%d", sync.volumeRaw);
+          Serial.printf(" - Avg: %f", sync.volumeSmth);
+          Serial.printf(" - Magn: %f", sync.my_magnitude);
+          Serial.printf(" - FFT Peak: %f", sync.FFT_MajorPeak);
+          Serial.printf(" - FFT Magn: %f", sync.FFT_Magnitude);
+          Serial.printf(" - FFT Values: ");
+          for (int b = 0; b < NUM_GEQ_CHANNELS; b++) {
+            uint8_t val = sync.fftResult[b];
+            Serial.printf("%u ", val);
+          }
+          Serial.println();
+          */
+
+          // we should check if we "have activity" and if not timeout after some time
+          switch (config.display.fftStyle)
+          {
+          default:
+          case 0:
+            config.display.fftStyle = rand() % 12;
+            break;
+          case 1: // FFT Bars without peaks
+            fftBars(smoothFtt, false, false);
+            break;
+          case 2: // FFT Bars with peaks
+            fftBars(smoothFtt, true, false);
+            break;
+          case 3:
+            fftBars(smoothFtt, false, true);
+            break;
+          case 4:
+            fftBars(smoothFtt, true, true);
+            break;
+          case 5:
+            fftVolumes(smoothFtt, false, false);
+            break;
+          case 6:
+            fftVolumes(smoothFtt, true, false);
+            break;
+          case 7:
+            fftVolumes(smoothFtt, false, true);
+            break;
+          case 8:
+            fftVolumes(smoothFtt, true, true);
+            break;
+          case 9:
+            fftHistoryGraph(waterfallBuffer, false, false);
+            break;
+          case 10:
+            fftHistoryGraph(waterfallBuffer, false, true);
+            break;
+          case 11:
+            fftHistoryGraph(waterfallBuffer, true, false);
+            break;
+          case 12:
+            fftHistoryGraph(waterfallBuffer, true, true);
+            break;
+          case 13:
+            fftBallBars(smoothFtt, false, false);
+            break;
+          case 14:
+            fftBallBars(smoothFtt, true, false);
+            break;
+          case 15:
+            fftBallBars(smoothFtt, false, true);
+            break;
+          case 16:
+            fftBallBars(smoothFtt, true, true);
+            break;
+          case 17:
+            fttKaleidscope(smoothFtt, false, false);
+            break;
+          case 18:
+            fttKaleidscope(smoothFtt, true, false);
+            break;
+          case 19:
+            fttKaleidscope(smoothFtt, false, true);
+            break;
+          case 20:
+            fttKaleidscope(smoothFtt, true, true);
+            break;
+          case 21:
+            fftBallBarsHalfMirror(smoothFtt, false, false);
+            break;
+          case 22:
+            fftBallBarsHalfMirror(smoothFtt, true, false);
+            break;
+          case 23:
+            fftBallBarsHalfMirror(smoothFtt, false, true);
+            break;
+          case 24:
+            fftBallBarsHalfMirror(smoothFtt, true, true);
+            break;
+          case 25:
+            fttParticles(smoothFtt);
+            break;
+          }
+
+          stackLayers();
+          vTaskDelay(pdMS_TO_TICKS(1));
+        }
+        else if (config.display.imagesEnabled)
         {
           if (config.status.fileStatus.displayFile)
           {
@@ -661,6 +800,11 @@ void TaskServer(void *pvParameters)
   server.on("/updateScrollText", handleSetScrollText);
 
   server.on("/setAnimation", handleSetAnimation);
+
+  server.on("/setFtt", handleFttRequests);
+
+  // TODO: ADD to WebUI
+  server.on("/clockSettings", handleClockSettings);
 
   server.on("/upload", HTTP_POST, []()
             { server.send(200, "text/plain", "File Uploaded OK"); }, handleUpload);

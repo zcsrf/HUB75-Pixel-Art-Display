@@ -4,6 +4,8 @@
 
 const float centerX = PANEL_RES_Y / 2.0f;
 const float centerY = PANEL_RES_X / 2.0f;
+const int maxRadius = PANEL_RES_X / 2;
+
 const int maxIterations = 255; // Max iteration for fractals
 
 // Random is under Drugs
@@ -11,11 +13,19 @@ uint8_t noise[PANEL_RES_X][PANEL_RES_Y]; // the noise array
 
 int turns = 0;
 
-typedef struct
+std::vector<int> peakHeights(NUM_GEQ_CHANNELS, 0);
+std::vector<int> peakFallDelays(NUM_GEQ_CHANNELS, 0);
+
+std::vector<int> peakHeightsInterpolated(PANEL_RES_X, 0);
+std::vector<int> peakFallDelaysInterpolated(PANEL_RES_X, 0);
+
+std::vector<Particle> particles(NUM_GEQ_CHANNELS);
+
+template <typename T>
+T clamp(T val, T mn, T mx)
 {
-    double centerX;
-    double centerY;
-} MandelbrotZoomCenter;
+    return std::max(std::min(val, mx), mn);
+}
 
 float randRange(float min, float max)
 {
@@ -69,6 +79,7 @@ CRGB hsvToRgb_nonNormalized(float hf, float sf, float vf)
     // Call the core normalized conversion function
     return hsvToRgb(h, s, v);
 }
+
 void hsvToRgb888(uint8_t h, uint8_t s, uint8_t v, uint8_t &r, uint8_t &g, uint8_t &b)
 {
     if (s == 0)
@@ -237,6 +248,720 @@ void stackLayers()
             // gfx_layer_fg.dim(255);
             gfx_compositor.Stack(gfx_layer_bg, gfx_layer_fg); // Combine the bg and the fg layer and draw it onto the panel.
             xSemaphoreGive(gfx_layer_mutex);                  // After accessing the shared resource give the mutex and allow other processes to access it
+        }
+    }
+}
+
+// Does some math to squezee some juice
+std::array<uint8_t, PANEL_RES_X> interpolateFFT(const std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult)
+{
+    std::array<uint8_t, 64> interpolated;
+    const int bands = 16;
+    const int width = PANEL_RES_X;
+
+    for (int i = 0; i < width; ++i)
+    {
+        // Normalize i to [0, bands-1]
+        float t = static_cast<float>(i) / (width - 1) * (bands - 1);
+        int index = static_cast<int>(t);
+        float frac = t - index;
+
+        if (index >= bands - 1)
+        {
+            interpolated[i] = fftResult[bands - 1];
+        }
+        else
+        {
+            interpolated[i] = static_cast<uint8_t>(
+                fftResult[index] * (1.0f - frac) + fftResult[index + 1] * frac);
+        }
+    }
+
+    return interpolated;
+}
+
+void fttParticles(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult)
+{
+    static bool firstTime = true;
+
+    if (firstTime)
+    {
+        // If first time seed the positions
+        firstTime = false;
+        for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+        {
+            particles[i].x = static_cast<float>(std::rand() % PANEL_RES_X);
+            particles[i].y = static_cast<float>(std::rand() % PANEL_RES_Y);
+            particles[i].vx = (std::rand() % 200 - 100) / 100.0f;
+            particles[i].vy = (std::rand() % 200 - 100) / 100.0f;
+        }
+    }
+
+    float speedFactor = 2.0f; // Higher = more reactive movement
+
+    gfx_layer_bg.clear();
+
+    for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+    {
+        float amplitude = static_cast<float>(fftResult[i]) / 255.0f;
+        particles[i].x += particles[i].vx * amplitude * speedFactor;
+        particles[i].y += particles[i].vy * amplitude * speedFactor;
+
+        // Bounce off edges
+        if (particles[i].x < 0 || particles[i].x >= PANEL_RES_X)
+        {
+            particles[i].vx = -particles[i].vx;
+            particles[i].x = clamp(particles[i].x, 0.0f, static_cast<float>(PANEL_RES_X - 1));
+        }
+        if (particles[i].y < 0 || particles[i].y >= PANEL_RES_Y)
+        {
+            particles[i].vy = -particles[i].vy;
+            particles[i].y = clamp(particles[i].y, 0.0f, static_cast<float>(PANEL_RES_Y - 1));
+        }
+    }
+
+    for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+    {
+        for (int j = i + 1; j < NUM_GEQ_CHANNELS; ++j)
+        {
+            int ix = static_cast<int>(particles[i].x);
+            int iy = static_cast<int>(particles[i].y);
+            int jx = static_cast<int>(particles[j].x);
+            int jy = static_cast<int>(particles[j].y);
+
+            if (ix == jx && iy == jy)
+            {
+                std::swap(particles[i].vx, particles[j].vx);
+                std::swap(particles[i].vy, particles[j].vy);
+
+                particles[i].x += particles[i].vx;
+                particles[i].y += particles[i].vy;
+                particles[j].x += particles[j].vx;
+                particles[j].y += particles[j].vy;
+
+                particles[i].x = clamp(particles[i].x, 0.0f, static_cast<float>(-1));
+                particles[i].y = clamp(particles[i].y, 0.0f, static_cast<float>(PANEL_RES_Y - 1));
+                particles[j].x = clamp(particles[j].x, 0.0f, static_cast<float>(PANEL_RES_X - 1));
+                particles[j].y = clamp(particles[j].y, 0.0f, static_cast<float>(PANEL_RES_Y - 1));
+            }
+        }
+    }
+
+    for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+    {
+        int px = static_cast<int>(particles[i].x);
+        int py = static_cast<int>(particles[i].y);
+        float hue = static_cast<float>(i) / static_cast<float>(NUM_GEQ_CHANNELS - 1); // hue: 0.0 to 1.0
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+        if (px >= 0 && px < PANEL_RES_X && py >= 0 && py < PANEL_RES_Y)
+        {
+            gfx_layer_bg.drawPixel(px, py, barColor);
+        }
+    }
+    for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+    {
+        int px = static_cast<int>(particles[i].x);
+        int py = static_cast<int>(particles[i].y);
+        float hue = static_cast<float>(i) / static_cast<float>(NUM_GEQ_CHANNELS - 1); // hue: 0.0 to 1.0
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+        for (int dx = 0; dx < 3; ++dx)
+        {
+            for (int dy = 0; dy < 3; ++dy)
+            {
+                int x = px + dx;
+                int y = py + dy;
+                if (x >= 0 && x < PANEL_RES_X && y >= 0 && y < PANEL_RES_Y)
+                {
+                    gfx_layer_bg.drawPixel(x, y, barColor);
+                }
+            }
+        }
+    }
+}
+
+void fttKaleidscope(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate)
+{
+    gfx_layer_bg.clear();
+
+    std::array<uint8_t, PANEL_RES_X> barValues;
+
+    if (interpolate)
+    {
+        barValues = interpolateFFT(fftResult);
+    }
+    else
+    {
+        int bandWidth = PANEL_RES_X / NUM_GEQ_CHANNELS;
+        for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+        {
+            for (int x = 0; x < bandWidth; ++x)
+            {
+                int idx = i * bandWidth + x;
+                if (idx < PANEL_RES_X)
+                    barValues[idx] = fftResult[i];
+            }
+        }
+    }
+
+    const int barCount = PANEL_RES_X / 4;
+    const float angleStart = 0.0f;
+    const float angleEnd = M_PI / 2.0f; // 90 degrees
+    const float angleStep = (angleEnd - angleStart) / barCount;
+    const int maxRadius = PANEL_RES_X / 2;
+
+    static std::array<int, PANEL_RES_X> peakHeights = {};
+    static std::array<int, PANEL_RES_X> peakDelays = {};
+
+    for (int i = 0; i < barCount; ++i)
+    {
+        float magnitude = static_cast<float>(barValues[i]) / 255.0f;
+        int barRadius = static_cast<int>(magnitude * maxRadius);
+
+        float startAngle = angleStart + i * angleStep;
+        float endAngle = startAngle + angleStep;
+        float hue = static_cast<float>(i) / static_cast<float>(barCount);
+
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+
+        // Update peak for current bar
+        if (barRadius >= peakHeights[i])
+        {
+            peakHeights[i] = barRadius;
+            peakDelays[i] = 0;
+        }
+        else if (++peakDelays[i] >= config.display.fftPeakHolding)
+        {
+            peakHeights[i] = std::max(peakHeights[i] - 1, 0);
+            peakDelays[i] = 0;
+        }
+
+        for (float theta = startAngle; theta < endAngle; theta += 0.015f)
+        {
+            for (int r = 0; r < barRadius; ++r)
+            {
+                int x = static_cast<int>(r * cos(theta));
+                int y = static_cast<int>(r * sin(theta));
+
+                int coords[4][2] = {
+                    {static_cast<int>(centerX + x), static_cast<int>(centerY + y)}, // Q1
+                    {static_cast<int>(centerX - x), static_cast<int>(centerY + y)}, // Q2
+                    {static_cast<int>(centerX + x), static_cast<int>(centerY - y)}, // Q4
+                    {static_cast<int>(centerX - x), static_cast<int>(centerY - y)}  // Q3
+                };
+
+                for (int q = 0; q < 4; ++q)
+                {
+                    int px = coords[q][0];
+                    int py = coords[q][1];
+                    if (px >= 0 && px < PANEL_RES_X && py >= 0 && py < PANEL_RES_Y)
+                    {
+                        gfx_layer_bg.drawPixel(px, py, barColor);
+                    }
+                }
+            }
+        }
+
+        if (peaks)
+        {
+            // Draw peak as single pixel at peak radius
+            float midAngle = (startAngle + endAngle) / 2.0f;
+            int peakR = peakHeights[i];
+
+            int x = static_cast<int>(peakR * cos(midAngle));
+            int y = static_cast<int>(peakR * sin(midAngle));
+
+            int coords[4][2] = {
+                {static_cast<int>(centerX + x), static_cast<int>(centerY + y)}, // Q1
+                {static_cast<int>(centerX - x), static_cast<int>(centerY + y)}, // Q2
+                {static_cast<int>(centerX + x), static_cast<int>(centerY - y)}, // Q4
+                {static_cast<int>(centerX - x), static_cast<int>(centerY - y)}  // Q3
+            };
+
+            for (int q = 0; q < 4; ++q)
+            {
+                int px = coords[q][0];
+                int py = coords[q][1];
+                if (px >= 0 && px < PANEL_RES_X && py >= 0 && py < PANEL_RES_Y)
+                {
+                    gfx_layer_bg.drawPixel(px, py, gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
+                }
+            }
+        }
+    }
+}
+
+void fftBallBarsHalfMirror(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate)
+{
+    gfx_layer_bg.clear();
+
+    std::array<uint8_t, PANEL_RES_X> barValues;
+
+    if (interpolate)
+    {
+        barValues = interpolateFFT(fftResult);
+    }
+    else
+    {
+        int bandWidth = PANEL_RES_X / NUM_GEQ_CHANNELS;
+        for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+        {
+            for (int x = 0; x < bandWidth; ++x)
+            {
+                int idx = i * bandWidth + x;
+                if (idx < PANEL_RES_X)
+                    barValues[idx] = fftResult[i];
+            }
+        }
+    }
+
+    const int barCount = PANEL_RES_X / 2; // Half-circle detail
+    const float angleStart = 0.0f;
+    const float angleEnd = M_PI; // 180°
+    const float angleStep = (angleEnd - angleStart) / barCount;
+    const int maxRadius = PANEL_RES_X / 2;
+
+    const float centerX = PANEL_RES_X / 2.0f;
+    const float centerY = PANEL_RES_Y / 2.0f;
+
+    static std::array<int, PANEL_RES_X> peakHeights = {};
+    static std::array<int, PANEL_RES_X> peakDelays = {};
+
+    for (int i = 0; i < barCount; ++i)
+    {
+        float magnitude = static_cast<float>(barValues[i]) / 255.0f;
+        int barRadius = static_cast<int>(magnitude * maxRadius);
+
+        float startAngle = angleStart + i * angleStep;
+        float endAngle = startAngle + angleStep;
+        float hue = static_cast<float>(i) / static_cast<float>(barCount);
+
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+
+        // Update peaks
+        if (barRadius >= peakHeights[i])
+        {
+            peakHeights[i] = barRadius;
+            peakDelays[i] = 0;
+        }
+        else if (++peakDelays[i] >= config.display.fftPeakHolding)
+        {
+            peakHeights[i] = std::max(peakHeights[i] - 1, 0);
+            peakDelays[i] = 0;
+        }
+
+        for (float theta = startAngle; theta < endAngle; theta += 0.005f)
+        {
+            for (int r = 0; r < barRadius; ++r)
+            {
+                int x = static_cast<int>(r * cos(theta));
+                int y = static_cast<int>(r * sin(theta));
+
+                int coords[2][2] = {
+                    {static_cast<int>(centerX + x), static_cast<int>(centerY + y)}, // Top half
+                    {static_cast<int>(centerX + x), static_cast<int>(centerY - y)}  // Bottom half
+                };
+
+                for (int q = 0; q < 2; ++q)
+                {
+                    int px = coords[q][0];
+                    int py = coords[q][1];
+                    if (px >= 0 && px < PANEL_RES_X && py >= 0 && py < PANEL_RES_Y)
+                    {
+                        gfx_layer_bg.drawPixel(px, py, barColor);
+                    }
+                }
+            }
+        }
+
+        if (peaks)
+        {
+            float midAngle = (startAngle + endAngle) / 2.0f;
+            int peakR = peakHeights[i];
+
+            int x = static_cast<int>(peakR * cos(midAngle));
+            int y = static_cast<int>(peakR * sin(midAngle));
+
+            int coords[2][2] = {
+                {static_cast<int>(centerX + x), static_cast<int>(centerY + y)}, // Top
+                {static_cast<int>(centerX + x), static_cast<int>(centerY - y)}  // Bottom
+            };
+
+            for (int q = 0; q < 2; ++q)
+            {
+                int px = coords[q][0];
+                int py = coords[q][1];
+                if (px >= 0 && px < PANEL_RES_X && py >= 0 && py < PANEL_RES_Y)
+                {
+                    gfx_layer_bg.drawPixel(px, py, gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
+                }
+            }
+        }
+    }
+}
+
+void fftBallBars(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate)
+{
+    gfx_layer_bg.clear();
+
+    std::array<uint8_t, PANEL_RES_X> barValues;
+
+    if (interpolate)
+    {
+        barValues = interpolateFFT(fftResult);
+    }
+    else
+    {
+        int bandWidth = PANEL_RES_X / NUM_GEQ_CHANNELS;
+        for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+        {
+            for (int x = 0; x < bandWidth; ++x)
+            {
+                int idx = i * bandWidth + x;
+                if (idx < PANEL_RES_X)
+                    barValues[idx] = fftResult[i];
+            }
+        }
+    }
+
+    float centerX = PANEL_RES_X / 2.0f;
+    float centerY = PANEL_RES_Y / 2.0f;
+    int maxRadius = PANEL_RES_X / 2;
+    float angleStep = 2.0f * M_PI / PANEL_RES_X;
+
+    static std::array<int, PANEL_RES_X> peakHeights = {};
+    static std::array<int, PANEL_RES_X> peakDelays = {};
+
+    for (int i = 0; i < PANEL_RES_X; ++i)
+    {
+        float angleStart = i * angleStep;
+        float angleEnd = (i + 1) * angleStep;
+
+        float magnitude = static_cast<float>(barValues[i]) / 255.0f;
+        int barRadius = static_cast<int>(magnitude * maxRadius);
+
+        float hue = static_cast<float>(i) / static_cast<float>(PANEL_RES_X);
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+
+        // Update peaks
+        if (barRadius >= peakHeights[i])
+        {
+            peakHeights[i] = barRadius;
+            peakDelays[i] = 0;
+        }
+        else if (++peakDelays[i] >= config.display.fftPeakHolding)
+        {
+            peakHeights[i] = std::max(peakHeights[i] - 1, 0);
+            peakDelays[i] = 0;
+        }
+
+        // Fill wedge between angleStart and angleEnd
+        // theta: Small step to avoid holes, smaller value, slower draw
+        for (float theta = angleStart; theta < angleEnd; theta += 0.015f)
+        {
+            for (int r = 0; r <= barRadius; ++r)
+            {
+                int x = static_cast<int>(centerX + r * cos(theta));
+                int y = static_cast<int>(centerY + r * sin(theta));
+
+                if (x >= 0 && x < PANEL_RES_X && y >= 0 && y < PANEL_RES_Y)
+                    gfx_layer_bg.drawPixel(x, y, barColor);
+            }
+        }
+
+        // Draw peak point
+        if (peaks)
+        {
+            float peakAngle = (angleStart + angleEnd) / 2.0f;
+            int px = static_cast<int>(centerX + peakHeights[i] * cos(peakAngle));
+            int py = static_cast<int>(centerY + peakHeights[i] * sin(peakAngle));
+
+            if (px >= 0 && px < PANEL_RES_X && py >= 0 && py < PANEL_RES_Y)
+            {
+                gfx_layer_bg.drawPixel(px, py, gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
+            }
+        }
+    }
+}
+
+void fftHistoryGraph(std::array<std::array<uint8_t, NUM_GEQ_CHANNELS>, PANEL_RES_Y> data, bool rotate, bool interpolate)
+{
+    gfx_layer_bg.clear();
+
+    for (int row = 0; row < PANEL_RES_Y; ++row)
+    {
+        std::array<uint8_t, PANEL_RES_X> interpolated;
+
+        if (interpolate)
+            interpolated = interpolateFFT(data[row]);
+        else
+        {
+            // Stretch: each bin covers WIDTH / BIN_COUNT
+            int widthPerBin = PANEL_RES_X / NUM_GEQ_CHANNELS;
+            for (int bin = 0; bin < NUM_GEQ_CHANNELS; ++bin)
+            {
+                for (int x = 0; x < widthPerBin; ++x)
+                    interpolated[bin * widthPerBin + x] = data[row][bin];
+            }
+        }
+
+        for (int x = 0; x < PANEL_RES_X; ++x)
+        {
+            uint8_t val = interpolated[x];
+            float hue = static_cast<float>(x) / PANEL_RES_X;
+            float value = static_cast<float>(val) / 255.f;
+            CRGB barColor = val == 0 ? gfx_layer_fg.color565(0, 0, 0) : hsvToRgb(hue, 1.0f, value);
+
+            if (rotate)
+                gfx_layer_bg.drawPixel(row, PANEL_RES_X - 1 - x, barColor);
+            else
+                gfx_layer_bg.drawPixel(x, row, barColor);
+        }
+    }
+}
+
+void fftVolumes(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate)
+{
+    gfx_layer_bg.clear();
+
+    std::array<uint8_t, PANEL_RES_X> barValues;
+
+    if (interpolate)
+    {
+        barValues = interpolateFFT(fftResult);
+    }
+    else
+    {
+        int bandWidth = PANEL_RES_X / NUM_GEQ_CHANNELS;
+        for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+        {
+            for (int x = 0; x < bandWidth; ++x)
+            {
+                int index = i * bandWidth + x;
+                if (index < PANEL_RES_X)
+                    barValues[index] = fftResult[i];
+            }
+        }
+    }
+
+    for (int i = 0; i < PANEL_RES_X; ++i)
+    {
+        int height = (static_cast<int>(barValues[i]) * PANEL_RES_Y / 255) / 2;
+
+        if (interpolate)
+        {
+            if (height >= peakHeightsInterpolated[i])
+            {
+                peakHeightsInterpolated[i] = height;
+                peakFallDelaysInterpolated[i] = 0;
+            }
+            else if (++peakFallDelaysInterpolated[i] >= config.display.fftPeakHolding)
+            {
+                peakHeightsInterpolated[i] = std::max(peakHeightsInterpolated[i] - 1, 0);
+                peakFallDelaysInterpolated[i] = 0;
+            }
+        }
+        else
+        {
+            int bandIndex = i / (PANEL_RES_X / NUM_GEQ_CHANNELS);
+            if (height >= peakHeights[bandIndex])
+            {
+                peakHeights[bandIndex] = height;
+                peakFallDelays[bandIndex] = 0;
+            }
+            else if (++peakFallDelays[bandIndex] >= config.display.fftPeakHolding)
+            {
+                peakHeights[bandIndex] = std::max(peakHeights[bandIndex] - 1, 0);
+                peakFallDelays[bandIndex] = 0;
+            }
+        }
+    }
+
+    for (int i = 0; i < PANEL_RES_X; ++i)
+    {
+        int height = (static_cast<int>(barValues[i]) * PANEL_RES_Y / 255) / 2;
+        float hue = static_cast<float>(i) / static_cast<float>(PANEL_RES_X);
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+
+        int peakHeight = interpolate ? peakHeightsInterpolated[i]
+                                     : peakHeights[i / (PANEL_RES_X / NUM_GEQ_CHANNELS)];
+
+        int peakYTop = 31 - peakHeight;
+        int peakYBottom = 32 + peakHeight;
+
+        for (int y = 0; y < height; ++y)
+        {
+            int pyTop = 31 - y;
+            int pyBottom = 32 + y;
+
+            if (pyTop >= 0)
+                gfx_layer_bg.drawPixel(i, pyTop, barColor);
+            if (pyBottom < PANEL_RES_Y)
+                gfx_layer_bg.drawPixel(i, pyBottom, barColor);
+        }
+
+        if (peaks)
+        {
+            if (peakYTop >= 0 && peakYTop < PANEL_RES_Y)
+                gfx_layer_bg.drawPixel(i, peakYTop,
+                                       gfx_layer_fg.color565(config.status.textColor.red,
+                                                             config.status.textColor.green,
+                                                             config.status.textColor.blue));
+
+            if (peakYBottom >= 0 && peakYBottom < PANEL_RES_Y)
+                gfx_layer_bg.drawPixel(i, peakYBottom,
+                                       gfx_layer_fg.color565(config.status.textColor.red,
+                                                             config.status.textColor.green,
+                                                             config.status.textColor.blue));
+        }
+    }
+}
+
+void fftVolumes(std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks)
+{
+    gfx_layer_bg.clear();
+    int bandWidth = PANEL_RES_X / NUM_GEQ_CHANNELS;
+
+    for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+    {
+        int height = (static_cast<int>(fftResult[i]) * PANEL_RES_Y / 255) / 2;
+
+        if (height >= peakHeights[i])
+        {
+            peakHeights[i] = height;
+            peakFallDelays[i] = 0;
+        }
+        else
+        {
+            peakFallDelays[i]++;
+            if (peakFallDelays[i] >= config.display.fftPeakHolding)
+            {
+                peakHeights[i] = std::max(peakHeights[i] - 1, 0);
+                peakFallDelays[i] = 0;
+            }
+        }
+    }
+
+    for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+    {
+        int height = (static_cast<int>(fftResult[i]) * PANEL_RES_Y / 255) / 2;
+        float hue = static_cast<float>(i) / static_cast<float>(NUM_GEQ_CHANNELS);
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < bandWidth; ++x)
+            {
+                int px = i * bandWidth + x;
+                int pyTop = 31 - y;
+                int pyBottom = 32 + y;
+
+                if (px >= 0 && px < PANEL_RES_X)
+                {
+                    if (pyTop >= 0)
+                        gfx_layer_bg.drawPixel(px, pyTop, barColor);
+                    if (pyBottom < PANEL_RES_Y)
+                        gfx_layer_bg.drawPixel(px, pyBottom, barColor);
+                }
+            }
+        }
+        if (peaks)
+        {
+            int peakYTop = 31 - peakHeights[i];
+            int peakYBottom = 32 + peakHeights[i];
+
+            for (int x = 0; x < bandWidth; ++x)
+            {
+                int px = i * bandWidth + x;
+                if (px >= 0 && px < PANEL_RES_X)
+                {
+                    if (peakYTop >= 0 && peakYTop < PANEL_RES_Y)
+                        gfx_layer_bg.drawPixel(px, peakYTop, gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
+
+                    if (peakYBottom >= 0 && peakYBottom < PANEL_RES_Y)
+                        gfx_layer_bg.drawPixel(px, peakYBottom, gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
+                }
+            }
+        }
+    }
+}
+
+void fftBars(const std::array<uint8_t, NUM_GEQ_CHANNELS> fftResult, bool peaks, bool interpolate)
+{
+    gfx_layer_bg.clear();
+
+    // Either use interpolated or original data
+    std::array<uint8_t, PANEL_RES_X> barValues;
+
+    if (interpolate)
+    {
+        barValues = interpolateFFT(fftResult);
+    }
+    else
+    {
+        // Stretch each bin to fit across PANEL_RES_X
+        int bandWidth = PANEL_RES_X / NUM_GEQ_CHANNELS;
+        for (int i = 0; i < NUM_GEQ_CHANNELS; ++i)
+        {
+            for (int x = 0; x < bandWidth; ++x)
+            {
+                int index = i * bandWidth + x;
+                if (index < PANEL_RES_X)
+                    barValues[index] = fftResult[i];
+            }
+        }
+    }
+
+    // Update peak tracking
+    for (int i = 0; i < PANEL_RES_X; ++i)
+    {
+        int height = static_cast<int>(barValues[i]) * PANEL_RES_Y / 255;
+
+        if (interpolate)
+        {
+            if (height >= peakHeightsInterpolated[i])
+            {
+                peakHeightsInterpolated[i] = height;
+                peakFallDelaysInterpolated[i] = 0;
+            }
+            else if (++peakFallDelaysInterpolated[i] >= config.display.fftPeakHolding)
+            {
+                peakHeightsInterpolated[i] = std::max(peakHeightsInterpolated[i] - 1, 0);
+                peakFallDelaysInterpolated[i] = 0;
+            }
+        }
+        else
+        {
+            int bandIndex = i / (PANEL_RES_X / NUM_GEQ_CHANNELS);
+            if (height >= peakHeights[bandIndex])
+            {
+                peakHeights[bandIndex] = height;
+                peakFallDelays[bandIndex] = 0;
+            }
+            else if (++peakFallDelays[bandIndex] >= config.display.fftPeakHolding)
+            {
+                peakHeights[bandIndex] = std::max(peakHeights[bandIndex] - 1, 0);
+                peakFallDelays[bandIndex] = 0;
+            }
+        }
+    }
+
+    // Draw the bars and peaks
+    for (int i = 0; i < PANEL_RES_X; ++i)
+    {
+        int height = static_cast<int>(barValues[i]) * PANEL_RES_Y / 255;
+        float hue = static_cast<float>(i) / static_cast<float>(PANEL_RES_X);
+        CRGB barColor = hsvToRgb(hue, 1.0f, 1.0f);
+
+        for (int y = 0; y < height; ++y)
+        {
+            int py = PANEL_RES_Y - 1 - y;
+            gfx_layer_bg.drawPixel(i, py, barColor);
+        }
+
+        if (peaks)
+        {
+            int peakY = PANEL_RES_Y - 1 - (interpolate ? peakHeightsInterpolated[i] : peakHeights[i / (PANEL_RES_X / NUM_GEQ_CHANNELS)]);
+            gfx_layer_bg.drawPixel(i, peakY, gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
         }
     }
 }
@@ -809,43 +1534,67 @@ void bootDraw()
 void clockDraw()
 {
     // Display the time in the format HH:MM (12/24H)
-    /*
-    gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-    gfx_layer_fg.setTextSize(2);
-    gfx_layer_fg.setCursor(2, 24);
-    gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-    gfx_layer_fg.print(config.status.clockTime);
-    gfx_layer_fg.setCursor(4, 24);
-    gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-    gfx_layer_fg.print(config.status.clockTime);
-    // gfx_layer_fg.setTextSize(2);
-    gfx_layer_fg.setCursor(3, 22);
-    gfx_layer_fg.setTextColor(gfx_layer_fg.color565(10, 10, 10));
-    gfx_layer_fg.setCursor(3, 25);
-    gfx_layer_fg.print(config.status.clockTime);
-    */
-
     gfx_layer_fg.clear();
+    uint8_t x_pos = 2;
+    uint8_t y_pos = 24;
+    uint8_t font_size = 2;
 
     uint16_t shadowColor = gfx_layer_fg.color565(10, 10, 10); // Black
 
+    // TODO: Test analog clock?
+    // gfx_layer_fg.fillCircle(1, 1, 5, gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
+
+    // TODO: clear this up... we don't need to do this math every turn
+    if (config.display.smallClock)
+    {
+        font_size = 1;
+
+        switch (config.display.clockPosition)
+        {
+        case 1:
+            x_pos = 1;
+            y_pos = 2;
+            break;
+        case 2:
+            x_pos = 33;
+            y_pos = 2;
+            break;
+        case 3:
+            x_pos = 33;
+            y_pos = 55;
+            break;
+        case 4:
+        default:
+            x_pos = 1;
+            y_pos = 55;
+            break;
+        }
+    }
+    else
+    {
+        x_pos = 2;
+        y_pos = 26;
+        font_size = 2;
+    }
+
     // Draw shadow in 4 directions around the text
+    gfx_layer_fg.setTextSize(font_size);
     for (int dx = -1; dx <= 1; dx++)
     {
         for (int dy = -1; dy <= 1; dy++)
         {
             if (dx == 0 && dy == 0)
                 continue; // Skip center
-            gfx_layer_fg.setCursor(3 + dx, 24 + dy);
+            gfx_layer_fg.setCursor(x_pos + dx, y_pos + dy);
             gfx_layer_fg.setTextColor(shadowColor);
             gfx_layer_fg.print(config.status.clockTime);
         }
     }
-
     gfx_layer_fg.setTextColor(gfx_layer_fg.color565(config.status.textColor.red, config.status.textColor.green, config.status.textColor.blue));
-    gfx_layer_fg.setTextSize(2);
-    gfx_layer_fg.setCursor(3, 24);
+    gfx_layer_fg.setCursor(x_pos, y_pos);
     gfx_layer_fg.print(config.status.clockTime); // Clock time text is processed in another thread
+
+    // gfx_layer_fg.drawBitmap()
 }
 
 // Draws scolling text
