@@ -16,6 +16,14 @@ This is based on the work of [mzashh - HUB75-Pixel-Art-Display](https://github.c
 - **GIF Playback**: Plays GIF files stored in the ESP32's SPI Flash.
 - **JPEG Playback**: Plays JPEG stored in the ESP32's SPI Flash
 - **MJPEG Streaming**: Allows streaming video to the ESP32 using ffmpeg, mjpeg and TCP.
+- **Audio Visualizers**: Audio visualizers, no internal audio processing, acts as a receiver for Audio Sync from WLED, check [SR-WLED-audio-server-win](https://github.com/Victoare/SR-WLED-audio-server-win)
+- **Animations**:
+  - Kaleidoscope
+  - Dancing Blob
+  - Random under Drugs
+  - Noise portal
+  - Mandelbrot
+  - Julia Set
 - **NTP Clock**: Displays the current time (configurable GMT and DST offsets in the firmware).
 - **WebUI**:
   - Upload, delete, download, and play Image files.
@@ -38,18 +46,7 @@ This is based on the work of [mzashh - HUB75-Pixel-Art-Display](https://github.c
 
 - **MJPEG Playback**:  Plays MJPEG stored in the ESP32's SPI Flash
 - **MJPEG Streaming**: Simple Overlay text over streaming MJPEG - Seems to be tricky (cpu constrain?)
-- **Animations**:
-  - Matrix
-  - Kaleidoscope
-  - Wormhole
-  - Star Wars, HyperDrive
-  - Dancing Blob
-  - Random under Drugs
-  * Plasma
-  * Noise portal
-  * Mandelbrot
-  * Julia Set
-- RAW streaming or use python to stream a dashboard using MJPEG
+- RAW streaming or use python to stream a dashboard using MJPEG (initial examples using python and ffmpeg on demo folder)
 
 ---
 
@@ -79,6 +76,8 @@ Also my Led Panel arrived with damage on two LEDs on one corner.
 - [AnimatedGIF](https://github.com/bitbank2/AnimatedGIF)
 - [GFX_Lite](https://github.com/mrcodetastic/GFX_Lite)
 - TODO: Add other libraries -> **bitbank2/JPEGDEC**
+- TODO: Add other libraries -> **https://github.com/netmindz/WLED-sync**
+
 
 ### Configuration
 - **Wi-Fi**:
